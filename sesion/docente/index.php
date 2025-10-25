@@ -500,7 +500,7 @@ try {
                                 
                                 <div class="info-item">
                                     <div class="info-label">Total Estudiantes</div>
-                                    <div class="info-value" id="totalEstudiantes"><?php echo $total_estudiantes; ?> estudiantes</div>
+                                    <div class="info-value" id="totalEstudiantes">56 estudiantes</div>
                                 </div>
                                 
                                 <div class="info-item">
