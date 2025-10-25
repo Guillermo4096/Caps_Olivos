@@ -89,6 +89,13 @@
                             window.location.href = 'sesion/padre/';
                         } else if (data.user_type === 'docente') {
                             window.location.href = 'sesion/docente/';
+                        } else if (data.user_type === 'administrador') {
+                            window.location.href = 'sesion/administrador/';
+                        } else {
+                            // Tipo de usuario desconocido
+                            messageDiv.textContent = '❌ Tipo de usuario desconocido';
+                            messageDiv.style.backgroundColor = '#f8d7da';
+                            messageDiv.style.color = '#721c24';
                         }
                     }, 1000);
                     
