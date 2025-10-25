@@ -1,0 +1,41 @@
+<?php
+// test-simple.php - Test básico de conexión
+echo "<h2>🧪 Test Simple de Conexión</h2>";
+
+// Test 1: ¿PHP funciona?
+echo "<p>✅ PHP está funcionando (versión: " . phpversion() . ")</p>";
+
+// Test 2: ¿Includes funcionan?
+try {
+    require_once 'includes/database.php';
+    echo "<p>✅ includes/database.php cargado correctamente</p>";
+} catch (Exception $e) {
+    echo "<p style='color: red;'>❌ Error cargando database.php: " . $e->getMessage() . "</p>";
+    exit;
+}
+
+// Test 3: ¿Conexión a BD funciona?
+try {
+    $db = new Database();
+    $conn = $db->getConnection();
+    echo "<p>✅ Conexión a base de datos exitosa</p>";
+    
+    // Test 4: ¿Tabla usuarios existe?
+    $stmt = $conn->query("SELECT name FROM sqlite_master WHERE type='table' AND name='usuarios'");
+    $table_exists = $stmt->fetch();
+    
+    if ($table_exists) {
+        echo "<p>✅ Tabla 'usuarios' existe</p>";
+        
+        // Test 5: ¿Hay usuarios?
+        $stmt = $conn->query("SELECT COUNT(*) as total FROM usuarios");
+        $count = $stmt->fetch();
+        echo "<p>Total de usuarios: " . $count['total'] . "</p>";
+    } else {
+        echo "<p style='color: red;'>❌ Tabla 'usuarios' NO existe</p>";
+    }
+    
+} catch (Exception $e) {
+    echo "<p style='color: red;'>❌ Error de conexión: " . $e->getMessage() . "</p>";
+}
+?>
