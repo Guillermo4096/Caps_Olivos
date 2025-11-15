@@ -3,6 +3,8 @@ session_start();
 
 if (!isset($_SESSION['user_id']) || $_SESSION['user_type'] !== 'administrador') {
     header('Location: ../../index.html');
+    http_response_code(401);
+    echo json_encode('Acceso restringido');
     exit;
 }
 
@@ -173,8 +175,91 @@ try {
                         </table>
                     </div>
                 </div>
+
+                <div id="gestion-estudiantes" class="module-content">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2>Gestión de Estudiantes</h2>
+                        <button onclick="mostrarModalCrearEstudiante()" style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                            ➕ Nuevo Estudiante
+                        </button>
+                    </div>
+                    
+                    <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Nombres</th>
+                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Apellidos</th>
+                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">DNI</th>
+                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Grado/Sección</th>
+                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Estado</th>
+                                    <th style="padding: 15px; text-align: center; color: #495057; font-weight: 600;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tablaEstudiantes">
+                                <tr><td colspan="8" style="padding: 20px; text-align: center; color: #7f8c8d;">Cargando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 
-                <!-- Los otros módulos irían aquí -->
+                <div id="modalEstudiante" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; padding: 20px 0;">
+                    <div style="background: white; padding: 30px; border-radius: 12px; width: 600px; max-width: 90%; margin: 50px auto;">
+                        <h3 id="modalTituloEstudiante">Crear Estudiante</h3>
+                        <form id="formEstudiante" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <input type="hidden" id="estudianteId" value="">
+                            
+                            <div style="grid-column: 1;">
+                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Nombres *</label>
+                                <input type="text" id="est_nombres" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                            </div>
+                            
+                            <div style="grid-column: 2;">
+                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Apellidos *</label>
+                                <input type="text" id="est_apellidos" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                            </div>
+                            
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">DNI *</label>
+                                <input type="text" id="est_dni" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                            </div>
+                            
+                            <div style="grid-column: 1;">
+                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Grado *</label>
+                                <select id="est_grado" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="1">4to Grado Primaria</option>
+                                    <option value="2">5to Grado Primaria</option>
+                                    <option value="3">6to Grado Primaria</option>
+                                    <option value="4">1er Grado Secundaria</option>
+                                    <option value="5">2do Grado Secundaria</option>
+                                    <option value="6">3er Grado Secundaria</option>
+                                    <option value="7">4to Grado Secundaria</option>
+                                    <option value="8">5to Grado Secundaria</option>
+                                </select>
+                            </div>
+                            
+                            <div style="grid-column: 2;">
+                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Sección *</label>
+                                <select id="est_seccion" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="A">A</option>
+                                    <option value="B">B</option>
+                                </select>
+                            </div>
+                            
+                            <div style="grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 10px;">
+                                <button type="button" onclick="guardarEstudiante()" style="flex: 1; padding: 12px; background: #2ecc71; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                    Guardar
+                                </button>
+                                <button type="button" onclick="cerrarModalEstudiante()" style="flex: 1; padding: 12px; background: #95a5a6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                    Cancelar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -299,71 +384,101 @@ try {
         }
         
         function actualizarTablaUsuarios(usuarios) {
-            const tbody = document.getElementById('tablaUsuarios');
+        const tbody = document.getElementById('tablaUsuarios');
+        
+        if (usuarios.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay usuarios registrados</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        usuarios.forEach(usuario => {
+            const estadoColor = usuario.activo ? '#2ecc71' : '#e74c3c';
+            const estadoTexto = usuario.activo ? 'Activo' : 'Inactivo';
             
-            if (usuarios.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay usuarios registrados</td></tr>';
-                return;
+            // Colores según tipo de usuario
+            let tipoColor, tipoTexto;
+            switch(usuario.tipo) {
+                case 'docente':
+                    tipoColor = '#3498db';
+                    tipoTexto = 'Docente';
+                    break;
+                case 'padre':
+                    tipoColor = '#2ecc71';
+                    tipoTexto = 'Padre';
+                    break;
+                case 'administrador':
+                    tipoColor = '#e74c3c';
+                    tipoTexto = 'Admin';
+                    break;
+                default:
+                    tipoColor = '#7f8c8d';
+                    tipoTexto = usuario.tipo;
             }
             
-            let html = '';
-            usuarios.forEach(usuario => {
-                const estadoColor = usuario.activo ? '#2ecc71' : '#e74c3c';
-                const estadoTexto = usuario.activo ? 'Activo' : 'Inactivo';
-                
-                html += `
-                <tr style="border-bottom: 1px solid #f0f2f5;">
-                    <td style="padding: 15px; font-weight: 600;">${usuario.username}</td>
-                    <td style="padding: 15px;">${usuario.nombres} ${usuario.apellidos}</td>
-                    <td style="padding: 15px;">
-                        <span style="padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; 
-                              background: ${usuario.tipo === 'docente' ? '#3498db' : usuario.tipo === 'padre' ? '#2ecc71' : '#e74c3c'}; 
-                              color: white;">
-                            ${usuario.tipo}
-                        </span>
-                    </td>
-                    <td style="padding: 15px;">${usuario.email || 'No especificado'}</td>
-                    <td style="padding: 15px;">
-                        <span style="color: ${estadoColor}; font-weight: 600;">${estadoTexto}</span>
-                    </td>
-                    <td style="padding: 15px;">
-                        <button onclick="editarUsuario(${usuario.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
-                            ✏️ Editar
-                        </button>
-                        <button onclick="eliminarUsuario(${usuario.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            🗑️ Eliminar
-                        </button>
-                    </td>
-                </tr>
-                `;
-            });
-            
-            tbody.innerHTML = html;
-        }
+            html += `
+            <tr style="border-bottom: 1px solid #f0f2f5;">
+                <td style="padding: 15px; font-weight: 600;">${usuario.username}</td>
+                <td style="padding: 15px;">${usuario.nombres} ${usuario.apellidos}</td>
+                <td style="padding: 15px;">
+                    <span style="padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; 
+                        background: ${tipoColor}; 
+                        color: white;">
+                        ${tipoTexto}
+                    </span>
+                </td>
+                <td style="padding: 15px;">${usuario.email || 'No especificado'}</td>
+                <td style="padding: 15px;">
+                    <span style="color: ${estadoColor}; font-weight: 600;">${estadoTexto}</span>
+                </td>
+                <td style="padding: 15px;">
+                    <button onclick="editarUsuario(${usuario.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
+                        ✏️ Editar
+                    </button>
+                    <button onclick="desactivarUsuario(${usuario.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Desactivar/Activar
+                    </button>
+                </td>
+            </tr>
+            `;
+        });
+        
+        tbody.innerHTML = html;
+    }
         
         function mostrarModalCrearUsuario() {
             document.getElementById('modalTitulo').textContent = 'Crear Usuario';
             document.getElementById('formUsuario').reset();
             document.getElementById('usuarioId').value = '';
+            document.getElementById('password').setAttribute('required', 'required');
             document.getElementById('modalUsuario').style.display = 'flex';
         }
         
         function cerrarModal() {
             document.getElementById('modalUsuario').style.display = 'none';
+            document.getElementById('password').setAttribute('required', 'required');
         }
         
         async function guardarUsuario() {
+            const usuarioId = document.getElementById('usuarioId').value;
+            const esEdicion = usuarioId !== '';
+            
             const formData = {
-                usuarioId: document.getElementById('usuarioId').value,
+                usuarioId: usuarioId,
                 tipo: document.getElementById('tipoUsuario').value,
                 username: document.getElementById('username').value,
-                password: document.getElementById('password').value,
                 nombres: document.getElementById('nombres').value,
                 apellidos: document.getElementById('apellidos').value,
                 email: document.getElementById('email').value,
                 dni: document.getElementById('dni').value,
                 telefono: document.getElementById('telefono').value
             };
+            
+            // Solo incluir password si se está creando o si se proporcionó uno nuevo
+            const password = document.getElementById('password').value;
+            if (!esEdicion || password) {
+                formData.password = password;
+            }
             
             try {
                 const response = await fetch('../../api/administrador/guardar-usuario.php', {
@@ -380,6 +495,12 @@ try {
                     alert('✅ ' + data.message);
                     cerrarModal();
                     cargarUsuarios(); // Recargar la tabla
+                    
+                    // Actualizar estadísticas si es necesario
+                    if (window.location.hash === '#dashboard' || document.getElementById('dashboard').classList.contains('active')) {
+                        // Recargar estadísticas
+                        location.reload();
+                    }
                 } else {
                     alert('❌ ' + data.message);
                 }
@@ -389,14 +510,240 @@ try {
             }
         }
         
-        function editarUsuario(usuarioId) {
-            alert('Editar usuario: ' + usuarioId + ' - Esta funcionalidad se implementará próximamente');
+        async function editarUsuario(usuarioId) {
+            try {
+                // Obtener datos del usuario
+                const response = await fetch(`../../api/administrador/obtener-usuario.php?id=${usuarioId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const usuario = data.usuario;
+                    
+                    // Llenar el formulario con los datos del usuario
+                    document.getElementById('modalTitulo').textContent = 'Editar Usuario';
+                    document.getElementById('usuarioId').value = usuario.id;
+                    document.getElementById('tipoUsuario').value = usuario.tipo;
+                    document.getElementById('username').value = usuario.username;
+                    document.getElementById('password').value = ''; // Dejar vacío para no cambiar
+                    document.getElementById('nombres').value = usuario.nombres;
+                    document.getElementById('apellidos').value = usuario.apellidos;
+                    document.getElementById('email').value = usuario.email || '';
+                    document.getElementById('dni').value = usuario.dni || '';
+                    document.getElementById('telefono').value = usuario.telefono || '';
+                    
+                    // Hacer que el campo de contraseña no sea obligatorio en edición
+                    document.getElementById('password').removeAttribute('required');
+                    
+                    // Mostrar el modal
+                    document.getElementById('modalUsuario').style.display = 'flex';
+                } else {
+                    alert('❌ Error al cargar datos del usuario');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión al cargar usuario');
+            }
         }
         
-        function eliminarUsuario(usuarioId) {
-            if (confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
-                alert('Eliminar usuario: ' + usuarioId + ' - Esta funcionalidad se implementará próximamente');
+        async function desactivarUsuario(usuarioId) {
+            const accion = confirm('¿Estás seguro de que quieres desactivar este usuario? El usuario no podrá acceder al sistema pero se mantendrán sus datos.');
+            
+            if (!accion) {
+                return;
             }
+            
+            try {
+                const response = await fetch('../../api/administrador/eliminar-usuario.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id: usuarioId })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    cargarUsuarios(); // Recargar tabla
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión: ' + error.message);
+            }
+        }
+
+        function agregarEventListeners() {
+            // Botones editar
+            document.querySelectorAll('.btn-editar').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const usuarioId = this.getAttribute('data-id');
+                    editarUsuario(usuarioId);
+                });
+            });
+            
+            // Botones desactivar/activar
+            document.querySelectorAll('.btn-desactivar').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const usuarioId = this.getAttribute('data-id');
+                    const estaActivo = this.getAttribute('data-activo') === '1';
+                    desactivarUsuario(usuarioId);
+                });
+            });
+        }
+
+        // Funciones para gestión de estudiantes
+        async function cargarEstudiantes() {
+            try {
+                const response = await fetch('../../api/administrador/estudiantes.php');
+                const data = await response.json();
+                
+                if (data.success) {
+                    actualizarTablaEstudiantes(data.estudiantes);
+                } else {
+                    alert('Error al cargar estudiantes: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al cargar estudiantes');
+            }
+        }
+
+        function actualizarTablaEstudiantes(estudiantes) {
+            const tbody = document.getElementById('tablaEstudiantes');
+            
+            if (estudiantes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay estudiantes registrados</td></tr>';
+                return;
+            }
+            
+            let html = '';
+            estudiantes.forEach(estudiante => {
+                const estadoColor = estudiante.activo ? '#2ecc71' : '#e74c3c';
+                const estadoTexto = estudiante.activo ? 'Activo' : 'Inactivo';
+                
+                html += `
+                <tr style="border-bottom: 1px solid #f0f2f5;">
+                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.nombres}</td>
+                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.apellidos}</td>
+                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.dni}</td>
+                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.grado}° ${estudiante.seccion}</td>
+                    <td style="padding: 12px 15px;">
+                        <span style="background: ${estadoColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
+                            ${estadoTexto}
+                        </span>
+                    </td>
+                    <td style="padding: 12px 15px; text-align: center;">
+                        <button onclick="editarEstudiante(${estudiante.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
+                            ✏️ Editar
+                        </button>
+                        <button onclick="desactivarEstudiante(${estudiante.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            🗑️ Eliminar
+                        </button>
+                    </td>
+                </tr>
+                `;
+            });
+            
+            tbody.innerHTML = html;
+        }
+
+        function mostrarModalCrearEstudiante() {
+            document.getElementById('modalTituloEstudiante').textContent = 'Crear Estudiante';
+            document.getElementById('formEstudiante').reset();
+            document.getElementById('estudianteId').value = '';
+            document.getElementById('modalEstudiante').style.display = 'flex';
+        }
+
+        function cerrarModalEstudiante() {
+            document.getElementById('modalEstudiante').style.display = 'none';
+        }
+
+        async function guardarEstudiante() {
+            const estudianteId = document.getElementById('estudianteId').value;
+            const esEdicion = estudianteId !== '';
+            
+            const formData = {
+                nombres: document.getElementById('est_nombres').value,
+                apellidos: document.getElementById('est_apellidos').value,
+                dni: document.getElementById('est_dni').value,
+                grado: document.getElementById('est_grado').value,
+            };
+            
+            if (esEdicion) {
+                formData.estudianteId = estudianteId;
+            }
+            
+            try {
+                const response = await fetch('../../api/administrador/guardar-estudiante.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(data.message);
+                    cerrarModalEstudiante();
+                    cargarEstudiantes();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al guardar estudiante');
+            }
+        }
+
+        async function editarEstudiante(estudianteId) {
+            try {
+                // Aquí deberías cargar los datos del estudiante
+                // Por ahora, se abre el modal en blanco para editar
+                document.getElementById('modalTituloEstudiante').textContent = 'Editar Estudiante';
+                document.getElementById('estudianteId').value = estudianteId;
+                document.getElementById('modalEstudiante').style.display = 'flex';
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al cargar estudiante');
+            }
+        }
+
+        async function desactivarEstudiante(estudianteId) {
+            if (!confirm('¿Estás seguro de que deseas eliminar este estudiante?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('../../api/administrador/eliminar-estudiante.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ id: estudianteId })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(data.message);
+                    cargarEstudiantes();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al eliminar estudiante');
+            }
+        }
+
+        // Agregar a la función loadModule
+        if (moduleId === 'gestion-estudiantes') {
+            cargarEstudiantes();
         }
         
         // Inicialización al cargar la página

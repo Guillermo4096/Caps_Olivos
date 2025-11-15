@@ -57,6 +57,17 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $total_estudiantes = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
+    // Obtener eventos del calendario para el docente
+    $stmt = $conn->prepare("
+        SELECT titulo, descripcion, fecha_evento, tipo 
+        FROM eventos 
+        WHERE docente_id = ? OR destinatario = 'todos'
+        ORDER BY fecha_evento ASC
+        LIMIT 10
+    ");
+    $stmt->execute([$_SESSION['user_id']]);
+    $eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
 } catch (Exception $e) {
     // En caso de error, usar datos por defecto
     $docente_data = [
@@ -67,7 +78,14 @@ try {
     ];
     $grados_texto = 'No disponible';
     $total_estudiantes = 0;
+    $eventos = [];
 }
+
+// Obtener fecha actual para el calendario
+$fecha_actual = new DateTime();
+$mes_actual = $fecha_actual->format('n');
+$ano_actual = $fecha_actual->format('Y');
+$dia_actual = $fecha_actual->format('j');
 ?>
 
 <!DOCTYPE html>
@@ -77,6 +95,163 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal Docente - I.E Juan Pablo Vizcardo y Guzmán</title>
     <link rel="stylesheet" href="../../css/styles.css">
+    <style>
+        .calendar-wrapper {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
+            margin-top: 20px;
+        }
+        
+        .calendar-box {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .calendar-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .calendar-nav {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .calendar-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .calendar-btn:hover {
+            background: #2980b9;
+        }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+        
+        .calendar-day-label {
+            text-align: center;
+            font-weight: 600;
+            color: #7f8c8d;
+            padding: 10px;
+            font-size: 14px;
+        }
+        
+        .calendar-day {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-height: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .calendar-day:hover {
+            background: #e3f2fd;
+            border-color: #3498db;
+        }
+        
+        .calendar-day.today {
+            background: #3498db !important;
+            color: white !important;
+            border-color: #3498db !important;
+            font-weight: bold;
+        }
+        
+        .calendar-day.has-event {
+            border-color: #e74c3c;
+            background: #fff5f5;
+        }
+        
+        .calendar-day.has-event::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: #e74c3c;
+            border-radius: 50%;
+            margin: 2px auto 0;
+        }
+        
+        .calendar-day.inactive {
+            background: #f8f9fa;
+            color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .calendar-day.inactive:hover {
+            background: #f8f9fa;
+            border-color: #e9ecef;
+        }
+        
+        .event-dot {
+            width: 6px;
+            height: 6px;
+            background: #e74c3c;
+            border-radius: 50%;
+            margin: 2px auto 0;
+        }
+        
+        .events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .event-item {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.2s ease;
+        }
+        
+        .event-item:hover {
+            background: #e3f2fd;
+            transform: translateX(5px);
+        }
+        
+        .event-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .event-detail {
+            color: #7f8c8d;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .event-urgent {
+            border-left-color: #e74c3c;
+        }
+        
+        @media (max-width: 768px) {
+            .calendar-wrapper {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Aplicación principal -->
@@ -343,12 +518,12 @@ try {
                     </div>
                 </div>
                 
-                <!-- CALENDARIO -->
+                <!-- CALENDARIO MEJORADO -->
                 <div id="calendario" class="module-content">
                     <div class="calendar-wrapper">
                         <div class="calendar-box">
                             <div class="calendar-header">
-                                <h3 id="mesActual">Octubre 2025</h3>
+                                <h3 id="mesActual"><?php echo date('F Y'); ?></h3>
                                 <div class="calendar-nav">
                                     <button class="calendar-btn" onclick="cambiarMes(-1)">◄</button>
                                     <button class="calendar-btn" onclick="cambiarMes(1)">►</button>
@@ -362,18 +537,21 @@ try {
                         
                         <div class="calendar-box">
                             <h3 style="color: #2c3e50; margin-bottom: 20px;">📅 Próximos Eventos</h3>
-                            <div class="events-list">
-                                <div class="event-item">
-                                    <div class="event-title">Reunión de Padres</div>
-                                    <div class="event-detail">📅 09 Oct 2025 - 3:00 PM</div>
-                                    <div class="event-detail">📍 Aula 3ro A</div>
-                                </div>
-                                
-                                <div class="event-item" style="border-left-color: #f39c12;">
-                                    <div class="event-title">Examen de Matemática</div>
-                                    <div class="event-detail">📅 15 Oct 2025</div>
-                                    <div class="event-detail">📚 Unidad 3</div>
-                                </div>
+                            <div class="events-list" id="listaEventos">
+                                <?php if (!empty($eventos)): ?>
+                                    <?php foreach($eventos as $evento): ?>
+                                        <div class="event-item <?php echo $evento['tipo'] === 'urgente' ? 'event-urgent' : ''; ?>">
+                                            <div class="event-title"><?php echo htmlspecialchars($evento['titulo']); ?></div>
+                                            <div class="event-detail">📅 <?php echo date('d M Y', strtotime($evento['fecha_evento'])); ?></div>
+                                            <div class="event-detail">📝 <?php echo htmlspecialchars($evento['descripcion']); ?></div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="event-item">
+                                        <div class="event-title">No hay eventos próximos</div>
+                                        <div class="event-detail">No hay eventos programados para los próximos días</div>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -500,7 +678,7 @@ try {
                                 
                                 <div class="info-item">
                                     <div class="info-label">Total Estudiantes</div>
-                                    <div class="info-value" id="totalEstudiantes">56 estudiantes</div>
+                                    <div class="info-value" id="totalEstudiantes"><?php echo $total_estudiantes; ?> estudiantes</div>
                                 </div>
                                 
                                 <div class="info-item">
@@ -521,6 +699,10 @@ try {
     </div>
 
     <script>
+        // Variables globales para el calendario
+        let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
+        const eventosCalendario = <?php echo json_encode($eventos); ?>;
+
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
             // Ocultar todos los módulos
@@ -584,10 +766,18 @@ try {
             });
         }
         
-        // Generar calendario
+        // Generar calendario mejorado
         function generarCalendario() {
             const calendarioGrid = document.getElementById('calendarioGrid');
-            const diasSemana = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+            const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+            const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const today = new Date();
+            
+            // Actualizar título del mes
+            document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
             
             let html = '';
             
@@ -596,24 +786,79 @@ try {
                 html += `<div class="calendar-day-label">${dia}</div>`;
             });
             
-            // Días del mes (ejemplo simplificado)
-            for (let i = 1; i <= 31; i++) {
+            // Primer día del mes
+            const firstDay = new Date(year, month, 1);
+            // Días en el mes
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            // Día de la semana del primer día (0 = Domingo, 1 = Lunes, ...)
+            const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Ajuste para que empiece en Lunes
+            
+            // Días vacíos al inicio
+            for (let i = 0; i < firstDayOfWeek; i++) {
+                html += `<div class="calendar-day inactive"></div>`;
+            }
+            
+            // Días del mes
+            for (let day = 1; day <= daysInMonth; day++) {
+                const currentDay = new Date(year, month, day);
                 let clase = 'calendar-day';
-                if (i === 7) clase += ' today';
-                if ([9, 15, 20].includes(i)) clase += ' has-event';
                 
-                html += `<div class="${clase}" onclick="seleccionarDia(${i})">${i}</div>`;
+                // Verificar si es hoy
+                if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+                    clase += ' today';
+                }
+                
+                // Verificar si hay eventos en este día
+                const tieneEventos = eventosCalendario.some(evento => {
+                    const eventoDate = new Date(evento.fecha_evento);
+                    return eventoDate.getDate() === day && 
+                           eventoDate.getMonth() === month && 
+                           eventoDate.getFullYear() === year;
+                });
+                
+                if (tieneEventos) {
+                    clase += ' has-event';
+                }
+                
+                html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
+                    ${day}
+                    ${tieneEventos ? '<div class="event-dot"></div>' : ''}
+                </div>`;
             }
             
             calendarioGrid.innerHTML = html;
         }
         
-        function seleccionarDia(dia) {
-            alert(`Día ${dia} seleccionado`);
+        function seleccionarDia(dia, mes, ano) {
+            const fecha = new Date(ano, mes, dia);
+            const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
+            
+            // Buscar eventos para este día
+            const eventosDia = eventosCalendario.filter(evento => {
+                const eventoDate = new Date(evento.fecha_evento);
+                return eventoDate.getDate() === dia && 
+                       eventoDate.getMonth() === mes && 
+                       eventoDate.getFullYear() === ano;
+            });
+            
+            let mensaje = `📅 ${fechaFormateada}`;
+            
+            if (eventosDia.length > 0) {
+                mensaje += `\n\n📋 Eventos para este día:\n`;
+                eventosDia.forEach((evento, index) => {
+                    mensaje += `\n${index + 1}. ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
+                });
+            } else {
+                mensaje += `\n\nNo hay eventos programados para este día.`;
+            }
+            
+            alert(mensaje);
         }
         
         function cambiarMes(direccion) {
-            alert('Funcionalidad de cambio de mes');
+            currentDate.setMonth(currentDate.getMonth() + direccion);
+            generarCalendario();
         }
         
         function crearTarea() {
