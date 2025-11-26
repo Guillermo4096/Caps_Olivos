@@ -20,7 +20,6 @@ try {
         'total_usuarios' => 0,
         'total_docentes' => 0,
         'total_padres' => 0,
-        'total_estudiantes' => 0
     ];
     
     // Total usuarios por tipo
@@ -42,17 +41,12 @@ try {
         $stats['total_usuarios'] += $fila['total'];
     }
     
-    // Total estudiantes
-    $stmt = $conn->query("SELECT COUNT(*) as total FROM estudiantes");
-    $stats['total_estudiantes'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-    
 } catch (Exception $e) {
     // En caso de error, usar ceros
     $stats = [
         'total_usuarios' => 0,
         'total_docentes' => 0, 
         'total_padres' => 0,
-        'total_estudiantes' => 0
     ];
 }
 ?>
@@ -80,10 +74,6 @@ try {
                 <div class="nav-item" onclick="loadModule('gestion-usuarios', this)">
                     <span class="nav-icon">👥</span>
                     <span>Gestión de Usuarios</span>
-                </div>
-                <div class="nav-item" onclick="loadModule('gestion-estudiantes', this)">
-                    <span class="nav-icon">🎓</span>
-                    <span>Gestión de Estudiantes</span>
                 </div>
                 <div class="nav-item" onclick="loadModule('gestion-grados', this)">
                     <span class="nav-icon">🏫</span>
@@ -136,12 +126,6 @@ try {
                             <div class="stat-number" id="totalPadres"><?php echo $stats['total_padres']; ?></div>
                             <div class="stat-label">Padres</div>
                         </div>
-                        
-                        <div class="stat-card purple">
-                            <div class="stat-icon">🎓</div>
-                            <div class="stat-number" id="totalEstudiantes"><?php echo $stats['total_estudiantes']; ?></div>
-                            <div class="stat-label">Estudiantes</div>
-                        </div>
                     </div>
                 </div>
                 
@@ -175,89 +159,31 @@ try {
                         </table>
                     </div>
                 </div>
-
-                <div id="gestion-estudiantes" class="module-content">
+                <!-- Nuevo: GESTIÓN DE GRADOS -->
+                <div id="gestion-grados" class="module-content">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                        <h2>Gestión de Estudiantes</h2>
-                        <button onclick="mostrarModalCrearEstudiante()" style="padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                            ➕ Nuevo Estudiante
-                        </button>
+                        <h3 style="color: #2c3e50;">Gestión de Grados</h3>
+                        <button class="btn-login" onclick="mostrarModalCrearGrado()">➕ Crear Grado</button>
                     </div>
-                    
-                    <div style="background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <div style="background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
-                                <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Nombres</th>
-                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Apellidos</th>
-                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">DNI</th>
-                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Grado/Sección</th>
-                                    <th style="padding: 15px; text-align: left; color: #495057; font-weight: 600;">Estado</th>
-                                    <th style="padding: 15px; text-align: center; color: #495057; font-weight: 600;">Acciones</th>
+                                <tr style="background: #f8f9fa; text-align: left;">
+                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Grado</th>
+                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Tutor</th>
+                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Estudiantes</th>
+                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody id="tablaEstudiantes">
-                                <tr><td colspan="8" style="padding: 20px; text-align: center; color: #7f8c8d;">Cargando...</td></tr>
+                            <tbody id="tablaGrados">
+                                <tr>
+                                    <td colspan="4" style="padding: 20px; text-align: center; color: #7f8c8d;">
+                                        Cargando grados...
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                
-                <div id="modalEstudiante" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; padding: 20px 0;">
-                    <div style="background: white; padding: 30px; border-radius: 12px; width: 600px; max-width: 90%; margin: 50px auto;">
-                        <h3 id="modalTituloEstudiante">Crear Estudiante</h3>
-                        <form id="formEstudiante" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                            <input type="hidden" id="estudianteId" value="">
-                            
-                            <div style="grid-column: 1;">
-                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Nombres *</label>
-                                <input type="text" id="est_nombres" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                            </div>
-                            
-                            <div style="grid-column: 2;">
-                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Apellidos *</label>
-                                <input type="text" id="est_apellidos" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                            </div>
-                            
-                            <div>
-                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">DNI *</label>
-                                <input type="text" id="est_dni" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                            </div>
-                            
-                            <div style="grid-column: 1;">
-                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Grado *</label>
-                                <select id="est_grado" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                                    <option value="">Seleccionar...</option>
-                                    <option value="1">4to Grado Primaria</option>
-                                    <option value="2">5to Grado Primaria</option>
-                                    <option value="3">6to Grado Primaria</option>
-                                    <option value="4">1er Grado Secundaria</option>
-                                    <option value="5">2do Grado Secundaria</option>
-                                    <option value="6">3er Grado Secundaria</option>
-                                    <option value="7">4to Grado Secundaria</option>
-                                    <option value="8">5to Grado Secundaria</option>
-                                </select>
-                            </div>
-                            
-                            <div style="grid-column: 2;">
-                                <label style="display: block; margin-bottom: 5px; color: #333; font-weight: 500;">Sección *</label>
-                                <select id="est_seccion" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
-                                    <option value="">Seleccionar...</option>
-                                    <option value="A">A</option>
-                                    <option value="B">B</option>
-                                </select>
-                            </div>
-                            
-                            <div style="grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 10px;">
-                                <button type="button" onclick="guardarEstudiante()" style="flex: 1; padding: 12px; background: #2ecc71; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                                    Guardar
-                                </button>
-                                <button type="button" onclick="cerrarModalEstudiante()" style="flex: 1; padding: 12px; background: #95a5a6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                                    Cancelar
-                                </button>
-                            </div>
-                        </form>
                     </div>
                 </div>
             </div>
@@ -324,6 +250,33 @@ try {
         </div>
     </div>
 
+    <!-- Modal para crear/editar grado -->
+    <div id="modalGrado" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
+            <h3 id="modalTituloGrado">Crear Grado</h3>
+            <form id="formGrado">
+                <input type="hidden" id="gradoId">
+                
+                <div class="form-group">
+                    <label>Nombre del Grado</label>
+                    <input type="text" id="nombreGrado" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Tutor (Docente)</label>
+                    <select id="selectTutor" required>
+                        <option value="">Cargando docentes...</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="button" class="btn-login" onclick="guardarGrado()">💾 Guardar</button>
+                    <button type="button" class="btn-logout" onclick="cerrarModalGrado()">❌ Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
@@ -345,7 +298,6 @@ try {
             const titles = {
                 'dashboard': 'Dashboard Admin',
                 'gestion-usuarios': 'Gestión de Usuarios',
-                'gestion-estudiantes': 'Gestión de Estudiantes',
                 'gestion-grados': 'Gestión de Grados',
                 'reportes': 'Reportes'
             };
@@ -354,6 +306,10 @@ try {
             // Cargar datos específicos del módulo
             if (moduleId === 'gestion-usuarios') {
                 cargarUsuarios();
+            }
+            if (moduleId === 'gestion-grados') {
+                cargarGrados();
+                cargarDocentes();
             }
         }
         
@@ -444,7 +400,7 @@ try {
         });
         
         tbody.innerHTML = html;
-    }
+        }
         
         function mostrarModalCrearUsuario() {
             document.getElementById('modalTitulo').textContent = 'Crear Usuario';
@@ -575,6 +531,164 @@ try {
             }
         }
 
+        // Gestión de Grados
+        async function cargarGrados() {
+            try {
+                const response = await fetch('../../api/administrador/grados.php');
+                const data = await response.json();
+                if (data.success) {
+                    actualizarTablaGrados(data.grados);
+                } else {
+                    document.getElementById('tablaGrados').innerHTML =
+                        '<tr><td colspan="4" style="padding: 20px; text-align: center; color: #e74c3c;">Error al cargar grados</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('tablaGrados').innerHTML =
+                    '<tr><td colspan="4" style="padding: 20px; text-align: center; color: #e74c3c;">Error de conexión</td></tr>';
+            }
+        }
+
+        function actualizarTablaGrados(grados) {
+            const tbody = document.getElementById('tablaGrados');
+
+            if (!grados || grados.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay grados registrados</td></tr>';
+                return;
+            }
+
+            let html = '';
+            grados.forEach(g => {
+                const tutorNombre = g.tutor_nombres ? `${g.tutor_nombres} ${g.tutor_apellidos}` : (g.tutor_username || 'Sin tutor');
+                const estudiantesCount = g.estudiantes_count !== undefined ? g.estudiantes_count : '-';
+
+                html += `
+                <tr style="border-bottom: 1px solid #f0f2f5;">
+                    <td style="padding: 15px; font-weight: 600;">${g.nombre}</td>
+                    <td style="padding: 15px;">${tutorNombre}</td>
+                    <td style="padding: 15px; text-align: center;">${estudiantesCount}</td>
+                    <td style="padding: 15px;">
+                        <button onclick="editarGrado(${g.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
+                            ✏️ Editar
+                        </button>
+                        <button onclick="eliminarGrado(${g.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            🗑️ Eliminar
+                        </button>
+                    </td>
+                </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function mostrarModalCrearGrado() {
+            document.getElementById('modalTituloGrado').textContent = 'Crear Grado';
+            document.getElementById('formGrado').reset();
+            document.getElementById('gradoId').value = '';
+            document.getElementById('modalGrado').style.display = 'flex';
+        }
+
+        function cerrarModalGrado() {
+            document.getElementById('modalGrado').style.display = 'none';
+        }
+
+        async function guardarGrado() {
+            const gradoId = document.getElementById('gradoId').value;
+            const nombre = document.getElementById('nombreGrado').value.trim();
+            const tutorId = document.getElementById('selectTutor').value;
+
+            if (!nombre || !tutorId) {
+                alert('Por favor completa el nombre del grado y selecciona un tutor.');
+                return;
+            }
+
+            const payload = { id: gradoId, nombre: nombre, tutor_id: tutorId };
+
+            try {
+                const response = await fetch('../../api/administrador/guardar-grado.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    cerrarModalGrado();
+                    cargarGrados();
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión');
+            }
+        }
+
+        async function editarGrado(id) {
+            try {
+                const response = await fetch(`../../api/administrador/obtener-grado.php?id=${id}`);
+                const data = await response.json();
+                if (data.success) {
+                    const g = data.grado;
+                    document.getElementById('modalTituloGrado').textContent = 'Editar Grado';
+                    document.getElementById('gradoId').value = g.id;
+                    document.getElementById('nombreGrado').value = g.nombre || '';
+                    // cargarDocentes ya debe haber sido llamado para poblar select, pero aseguramos seleccionar
+                    await cargarDocentes(g.tutor_id);
+                    document.getElementById('modalGrado').style.display = 'flex';
+                } else {
+                    alert('❌ Error al cargar grado');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión al cargar grado');
+            }
+        }
+
+        async function eliminarGrado(id) {
+            if (!confirm('¿Seguro que deseas eliminar este grado? Esta acción es irreversible.')) return;
+            try {
+                const response = await fetch('../../api/administrador/eliminar-grado.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    cargarGrados();
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión');
+            }
+        }
+
+        // Cargar lista de docentes para asignar como tutores
+        async function cargarDocentes(selectIdToChoose = null) {
+            try {
+                const response = await fetch('../../api/administrador/docentes.php');
+                const data = await response.json();
+                const select = document.getElementById('selectTutor');
+                if (data.success && Array.isArray(data.docentes)) {
+                    let options = '<option value="">Seleccionar tutor...</option>';
+                    data.docentes.forEach(d => {
+                        options += `<option value="${d.id}">${d.nombres} ${d.apellidos} (${d.username || d.email || 'docente'})</option>`;
+                    });
+                    select.innerHTML = options;
+                    if (selectIdToChoose) select.value = selectIdToChoose;
+                } else {
+                    select.innerHTML = '<option value="">No hay docentes</option>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('selectTutor').innerHTML = '<option value="">Error al cargar docentes</option>';
+            }
+        }
+
         function agregarEventListeners() {
             // Botones editar
             document.querySelectorAll('.btn-editar').forEach(btn => {
@@ -593,159 +707,6 @@ try {
                 });
             });
         }
-
-        // Funciones para gestión de estudiantes
-        async function cargarEstudiantes() {
-            try {
-                const response = await fetch('../../api/administrador/estudiantes.php');
-                const data = await response.json();
-                
-                if (data.success) {
-                    actualizarTablaEstudiantes(data.estudiantes);
-                } else {
-                    alert('Error al cargar estudiantes: ' + data.error);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error al cargar estudiantes');
-            }
-        }
-
-        function actualizarTablaEstudiantes(estudiantes) {
-            const tbody = document.getElementById('tablaEstudiantes');
-            
-            if (estudiantes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay estudiantes registrados</td></tr>';
-                return;
-            }
-            
-            let html = '';
-            estudiantes.forEach(estudiante => {
-                const estadoColor = estudiante.activo ? '#2ecc71' : '#e74c3c';
-                const estadoTexto = estudiante.activo ? 'Activo' : 'Inactivo';
-                
-                html += `
-                <tr style="border-bottom: 1px solid #f0f2f5;">
-                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.nombres}</td>
-                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.apellidos}</td>
-                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.dni}</td>
-                    <td style="padding: 12px 15px; font-size: 14px;">${estudiante.grado}° ${estudiante.seccion}</td>
-                    <td style="padding: 12px 15px;">
-                        <span style="background: ${estadoColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
-                            ${estadoTexto}
-                        </span>
-                    </td>
-                    <td style="padding: 12px 15px; text-align: center;">
-                        <button onclick="editarEstudiante(${estudiante.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
-                            ✏️ Editar
-                        </button>
-                        <button onclick="desactivarEstudiante(${estudiante.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            🗑️ Eliminar
-                        </button>
-                    </td>
-                </tr>
-                `;
-            });
-            
-            tbody.innerHTML = html;
-        }
-
-        function mostrarModalCrearEstudiante() {
-            document.getElementById('modalTituloEstudiante').textContent = 'Crear Estudiante';
-            document.getElementById('formEstudiante').reset();
-            document.getElementById('estudianteId').value = '';
-            document.getElementById('modalEstudiante').style.display = 'flex';
-        }
-
-        function cerrarModalEstudiante() {
-            document.getElementById('modalEstudiante').style.display = 'none';
-        }
-
-        async function guardarEstudiante() {
-            const estudianteId = document.getElementById('estudianteId').value;
-            const esEdicion = estudianteId !== '';
-            
-            const formData = {
-                nombres: document.getElementById('est_nombres').value,
-                apellidos: document.getElementById('est_apellidos').value,
-                dni: document.getElementById('est_dni').value,
-                grado: document.getElementById('est_grado').value,
-            };
-            
-            if (esEdicion) {
-                formData.estudianteId = estudianteId;
-            }
-            
-            try {
-                const response = await fetch('../../api/administrador/guardar-estudiante.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData)
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert(data.message);
-                    cerrarModalEstudiante();
-                    cargarEstudiantes();
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error al guardar estudiante');
-            }
-        }
-
-        async function editarEstudiante(estudianteId) {
-            try {
-                // Aquí deberías cargar los datos del estudiante
-                // Por ahora, se abre el modal en blanco para editar
-                document.getElementById('modalTituloEstudiante').textContent = 'Editar Estudiante';
-                document.getElementById('estudianteId').value = estudianteId;
-                document.getElementById('modalEstudiante').style.display = 'flex';
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error al cargar estudiante');
-            }
-        }
-
-        async function desactivarEstudiante(estudianteId) {
-            if (!confirm('¿Estás seguro de que deseas eliminar este estudiante?')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('../../api/administrador/eliminar-estudiante.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ id: estudianteId })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert(data.message);
-                    cargarEstudiantes();
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error al eliminar estudiante');
-            }
-        }
-
-        // Agregar a la función loadModule
-        if (moduleId === 'gestion-estudiantes') {
-            cargarEstudiantes();
-        }
-        
         // Inicialización al cargar la página
         document.addEventListener('DOMContentLoaded', function() {
             // Cargar datos iniciales del dashboard

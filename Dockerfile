@@ -1,7 +1,7 @@
 FROM php:8.1-apache
 
 # Metadatos
-LABEL maintainer="TuNombre"
+LABEL maintainer="Guillermo"
 LABEL description="Plataforma de Gestión de Tareas Escolares"
 LABEL version="1.0"
 
