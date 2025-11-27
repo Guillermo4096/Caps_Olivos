@@ -293,12 +293,6 @@ try {
                             </div>
                         </div>
                         
-                        <div class="calendar-box">
-                            <h3 style="color: #2c3e50; margin-bottom: 20px;">📅 Próximos Eventos</h3>
-                            <div class="events-list" id="listaEventos">
-                                <div class="loading-message">Cargando eventos...</div>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 

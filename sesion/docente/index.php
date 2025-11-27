@@ -24,15 +24,23 @@ try {
     
     // Obtener grados a cargo del docente
     $stmt = $conn->prepare("
-        SELECT g.nombre, g.seccion 
+        SELECT g.id, g.nombre, g.seccion 
         FROM grados g 
         WHERE g.tutor_id = (
             SELECT id FROM docentes WHERE usuario_id = ?
         )
     ");
+    
+    $stmt->execute([$_SESSION['user_id']]);
+    $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $stmt->execute([$_SESSION['user_id']]);
     $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Obtener lista de materias desde la BD
+    $stmt = $conn->prepare("SELECT id, nombre FROM materias ORDER BY nombre ASC");
+    $stmt->execute();
+    $materias = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
     // Formatear grados para mostrar
     $grados_texto = '';
     if ($grados) {
@@ -267,10 +275,6 @@ $dia_actual = $fecha_actual->format('j');
                     <span class="nav-icon">📊</span>
                     <span>Dashboard</span>
                 </div>
-                <div class="nav-item" onclick="loadModule('mis-estudiantes', this)">
-                    <span class="nav-icon">👥</span>
-                    <span>Mis Estudiantes</span>
-                </div>
                 <div class="nav-item" onclick="loadModule('tareas', this)">
                     <span class="nav-icon">📝</span>
                     <span>Tareas</span>
@@ -368,66 +372,6 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                 
-                <!-- MIS ESTUDIANTES -->
-                <div id="mis-estudiantes" class="module-content">
-                    <div class="stats-grid" style="margin-bottom: 25px;">
-                        <div class="stat-card">
-                            <div class="stat-icon">👥</div>
-                            <div class="stat-number">28</div>
-                            <div class="stat-label">Total Estudiantes</div>
-                        </div>
-                        <div class="stat-card success">
-                            <div class="stat-icon">✅</div>
-                            <div class="stat-number">24</div>
-                            <div class="stat-label">Tareas al día</div>
-                        </div>
-                        <div class="stat-card warning">
-                            <div class="stat-icon">⚠️</div>
-                            <div class="stat-number">4</div>
-                            <div class="stat-label">Con tareas atrasadas</div>
-                        </div>
-                    </div>
-                    
-                    <h3 style="color: #2c3e50; margin-bottom: 20px;">📋 Lista de Estudiantes - 3ro A</h3>
-                    
-                    <div style="background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                        <table style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background: #f8f9fa; text-align: left;">
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef; font-weight: 600;">#</th>
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef; font-weight: 600;">Estudiante</th>
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef; font-weight: 600;">Tareas Completadas</th>
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef; font-weight: 600;">Tareas Pendientes</th>
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef; font-weight: 600;">Estado</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr style="border-bottom: 1px solid #f0f2f5;">
-                                    <td style="padding: 15px;">1</td>
-                                    <td style="padding: 15px; font-weight: 600;">Ana María González</td>
-                                    <td style="padding: 15px;">15</td>
-                                    <td style="padding: 15px;">0</td>
-                                    <td style="padding: 15px;"><span style="background: #d4edda; color: #155724; padding: 5px 12px; border-radius: 15px; font-size: 12px; font-weight: 600;">AL DÍA</span></td>
-                                </tr>
-                                <tr style="border-bottom: 1px solid #f0f2f5;">
-                                    <td style="padding: 15px;">2</td>
-                                    <td style="padding: 15px; font-weight: 600;">Carlos Ramírez Torres</td>
-                                    <td style="padding: 15px;">14</td>
-                                    <td style="padding: 15px;">1</td>
-                                    <td style="padding: 15px;"><span style="background: #d4edda; color: #155724; padding: 5px 12px; border-radius: 15px; font-size: 12px; font-weight: 600;">AL DÍA</span></td>
-                                </tr>
-                                <tr style="border-bottom: 1px solid #f0f2f5;">
-                                    <td style="padding: 15px;">3</td>
-                                    <td style="padding: 15px; font-weight: 600;">María Pérez López</td>
-                                    <td style="padding: 15px;">12</td>
-                                    <td style="padding: 15px;">3</td>
-                                    <td style="padding: 15px;"><span style="background: #fff3cd; color: #856404; padding: 5px 12px; border-radius: 15px; font-size: 12px; font-weight: 600;">ATRASADO</span></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                
                 <!-- TAREAS -->
                 <div id="tareas" class="module-content">
                     <div style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap;">
@@ -475,12 +419,15 @@ $dia_actual = $fecha_actual->format('j');
                                 <label>Grado y Sección</label>
                                 <select id="gradoTarea" required>
                                     <option value="">Seleccionar grado...</option>
-                                    <option value="1">1ro A - Primaria</option>
-                                    <option value="2">1ro B - Primaria</option>
-                                    <option value="3">2do A - Primaria</option>
-                                    <option value="4">2do B - Primaria</option>
-                                    <option value="5">3ro A - Primaria</option>
-                                    <option value="6">3ro B - Primaria</option>
+                                    <?php if (!empty($grados)): ?>
+                                        <?php foreach ($grados as $grado): ?>
+                                            <option value="<?php echo htmlspecialchars($grado['id'], ENT_QUOTES); ?>">
+                                                <?php echo htmlspecialchars($grado['nombre'] . ' ' . $grado['seccion']); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <option value="" disabled>No hay grados asignados</option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                             
@@ -488,13 +435,13 @@ $dia_actual = $fecha_actual->format('j');
                                 <label>Materia/Curso</label>
                                 <select id="materiaTarea" required>
                                     <option value="">Seleccionar materia...</option>
-                                    <option value="1">Matemática</option>
-                                    <option value="2">Comunicación</option>
-                                    <option value="3">Ciencia y Tecnología</option>
-                                    <option value="4">Personal Social</option>
-                                    <option value="5">Arte y Cultura</option>
-                                    <option value="6">Educación Física</option>
-                                    <option value="7">Inglés</option>
+                                    <?php if (!empty($materias)): ?>
+                                        <?php foreach ($materias as $materia): ?>
+                                            <option value="<?php echo htmlspecialchars($materia['id'], ENT_QUOTES); ?>"><?php echo htmlspecialchars($materia['nombre']); ?></option>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <option value="" disabled>No hay materias disponibles</option>
+                                    <?php endif; ?>
                                 </select>
                             </div>
                             
@@ -722,7 +669,6 @@ $dia_actual = $fecha_actual->format('j');
             // Actualizar título
             const titles = {
                 'dashboard': 'Dashboard',
-                'mis-estudiantes': 'Mis Estudiantes',
                 'tareas': 'Tareas',
                 'crear-tarea': 'Crear Nueva Tarea',
                 'calendario': 'Calendario',
