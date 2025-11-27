@@ -89,12 +89,24 @@ try {
         $tareas_completadas = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     }
     
-    // 4. Obtener próximo evento
+    // 4. Obtener eventos del calendario para el padre (todos los eventos públicos)
+    $stmt = $conn->prepare("
+        SELECT titulo, descripcion, fecha_evento, tipo, lugar 
+        FROM eventos 
+        WHERE destinatario = 'todos' OR destinatario = 'padres'
+        ORDER BY fecha_evento ASC
+        LIMIT 10
+    ");
+    $stmt->execute();
+    $eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // 5. Obtener próximo evento
     $stmt = $conn->prepare("
         SELECT titulo, fecha_evento, lugar 
         FROM eventos 
         WHERE fecha_evento >= CURDATE() 
         AND activo = 1
+        AND (destinatario = 'todos' OR destinatario = 'padres')
         ORDER BY fecha_evento ASC 
         LIMIT 1
     ");
@@ -109,7 +121,7 @@ try {
         $dias_proximo_evento = $diferencia->days;
     }
     
-    // 5. Obtener comunicados no leídos (últimos 7 días)
+    // 6. Obtener comunicados no leídos (últimos 7 días)
     $stmt = $conn->prepare("
         SELECT COUNT(*) as total 
         FROM comunicados c 
@@ -124,7 +136,7 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $comunicados_nuevos = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
-    // 6. Obtener tareas recientes del estudiante principal
+    // 7. Obtener tareas recientes del estudiante principal
     $tareas_recientes = [];
     if ($estudiantes && count($estudiantes) > 0) {
         $estudiante_id = $estudiantes[0]['estudiante_id'];
@@ -163,7 +175,14 @@ try {
     $comunicados_nuevos = 0;
     $tareas_recientes = [];
     $estudiantes = [];
+    $eventos = [];
 }
+
+// Obtener fecha actual para el calendario
+$fecha_actual = new DateTime();
+$mes_actual = $fecha_actual->format('n');
+$ano_actual = $fecha_actual->format('Y');
+$dia_actual = $fecha_actual->format('j');
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -172,6 +191,163 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal Padre - I.E Juan Pablo Vizcardo y Guzmán</title>
     <link rel="stylesheet" href="../../css/styles.css">
+    <style>
+        .calendar-wrapper {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
+            margin-top: 20px;
+        }
+        
+        .calendar-box {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .calendar-nav {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .calendar-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .calendar-btn:hover {
+            background: #2980b9;
+        }
+        
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+        
+        .calendar-day-label {
+            text-align: center;
+            font-weight: 600;
+            color: #7f8c8d;
+            padding: 10px;
+            font-size: 14px;
+        }
+        
+        .calendar-day {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-height: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .calendar-day:hover {
+            background: #e3f2fd;
+            border-color: #3498db;
+        }
+        
+        .calendar-day.today {
+            background: #3498db !important;
+            color: white !important;
+            border-color: #3498db !important;
+            font-weight: bold;
+        }
+        
+        .calendar-day.has-event {
+            border-color: #e74c3c;
+            background: #fff5f5;
+        }
+        
+        .calendar-day.has-event::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: #e74c3c;
+            border-radius: 50%;
+            margin: 2px auto 0;
+        }
+        
+        .calendar-day.inactive {
+            background: #f8f9fa;
+            color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .calendar-day.inactive:hover {
+            background: #f8f9fa;
+            border-color: #e9ecef;
+        }
+        
+        .event-dot {
+            width: 6px;
+            height: 6px;
+            background: #e74c3c;
+            border-radius: 50%;
+            margin: 2px auto 0;
+        }
+        
+        .events-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .event-item {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.2s ease;
+        }
+        
+        .event-item:hover {
+            background: #e3f2fd;
+            transform: translateX(5px);
+        }
+        
+        .event-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .event-detail {
+            color: #7f8c8d;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .event-urgent {
+            border-left-color: #e74c3c;
+        }
+        
+        @media (max-width: 768px) {
+            .calendar-wrapper {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Aplicación principal -->
@@ -222,8 +398,8 @@ try {
                 <div>
                     <h2 id="moduleTitle">Dashboard</h2>
                     <div class="breadcrumb" id="breadcrumb">
-                        Estudiante: <strong id="studentName">Cargando...</strong> - 
-                        <span id="studentGrade">Cargando...</span>
+                        Estudiante: <strong id="studentName"><?php echo $estudiante_principal; ?></strong> - 
+                        <span id="studentGrade"><?php echo $grado_estudiante; ?></span>
                     </div>
                 </div>
             </div>
@@ -234,32 +410,50 @@ try {
                     <div class="stats-grid">
                         <div class="stat-card warning">
                             <div class="stat-icon">⏰</div>
-                            <div class="stat-number" id="tareasPendientes">0</div>
+                            <div class="stat-number" id="tareasPendientes"><?php echo $tareas_pendientes; ?></div>
                             <div class="stat-label">Tareas Pendientes</div>
                         </div>
                         
                         <div class="stat-card success">
                             <div class="stat-icon">✅</div>
-                            <div class="stat-number" id="tareasCompletadas">0</div>
+                            <div class="stat-number" id="tareasCompletadas"><?php echo $tareas_completadas; ?></div>
                             <div class="stat-label">Tareas Completadas</div>
                         </div>
                         
                         <div class="stat-card purple">
                             <div class="stat-icon">📆</div>
-                            <div class="stat-number" id="diasProximoEvento">0</div>
+                            <div class="stat-number" id="diasProximoEvento"><?php echo $dias_proximo_evento; ?></div>
                             <div class="stat-label">Días - Próximo Evento</div>
                         </div>
                         
                         <div class="stat-card">
                             <div class="stat-icon">📨</div>
-                            <div class="stat-number" id="mensajesNuevos">0</div>
+                            <div class="stat-number" id="mensajesNuevos"><?php echo $comunicados_nuevos; ?></div>
                             <div class="stat-label">Mensajes Nuevos</div>
                         </div>
                     </div>
                     
                     <h3 style="color: #2c3e50; margin-bottom: 20px; font-size: 20px;">📌 Tareas Recientes</h3>
                     <div class="task-list" id="tareasRecientes">
-                        <div class="loading-message">Cargando tareas...</div>
+                        <?php if (!empty($tareas_recientes)): ?>
+                            <?php foreach($tareas_recientes as $tarea): ?>
+                                <div class="task-item <?php echo $tarea['estado'] === 'completada' ? 'completed' : 'pending'; ?>">
+                                    <div class="task-info">
+                                        <h3>📚 <?php echo htmlspecialchars($tarea['materia']); ?> - <?php echo htmlspecialchars($tarea['titulo']); ?></h3>
+                                        <p><?php echo htmlspecialchars($tarea['descripcion']); ?></p>
+                                        <div class="task-meta">
+                                            📅 Vence: <?php echo date('d M Y', strtotime($tarea['fecha_entrega'])); ?> | 
+                                            👨‍🏫 Prof. <?php echo htmlspecialchars($tarea['profesor_nombres'] . ' ' . $tarea['profesor_apellidos']); ?>
+                                        </div>
+                                    </div>
+                                    <span class="task-status <?php echo $tarea['estado'] === 'completada' ? 'status-completed' : 'status-pending'; ?>">
+                                        <?php echo $tarea['estado'] === 'completada' ? 'COMPLETADA' : 'PENDIENTE'; ?>
+                                    </span>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="no-data">No hay tareas pendientes</div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 
@@ -276,12 +470,12 @@ try {
                     </div>
                 </div>
                 
-                <!-- CALENDARIO -->
+                <!-- CALENDARIO MEJORADO -->
                 <div id="calendario" class="module-content">
                     <div class="calendar-wrapper">
                         <div class="calendar-box">
                             <div class="calendar-header">
-                                <h3 id="mesActual">Cargando...</h3>
+                                <h3 id="mesActual"><?php echo date('F Y'); ?></h3>
                                 <div class="calendar-nav">
                                     <button class="calendar-btn" onclick="cambiarMes(-1)">◄</button>
                                     <button class="calendar-btn" onclick="cambiarMes(1)">►</button>
@@ -289,10 +483,32 @@ try {
                             </div>
                             
                             <div class="calendar-grid" id="calendarioGrid">
-                                <div class="loading-message">Cargando calendario...</div>
+                                <!-- Generado por JavaScript -->
                             </div>
                         </div>
                         
+                        <div class="calendar-box">
+                            <h3 style="color: #2c3e50; margin-bottom: 20px;">📅 Próximos Eventos</h3>
+                            <div class="events-list" id="listaEventos">
+                                <?php if (!empty($eventos)): ?>
+                                    <?php foreach($eventos as $evento): ?>
+                                        <div class="event-item <?php echo $evento['tipo'] === 'urgente' ? 'event-urgent' : ''; ?>">
+                                            <div class="event-title"><?php echo htmlspecialchars($evento['titulo']); ?></div>
+                                            <div class="event-detail">📅 <?php echo date('d M Y', strtotime($evento['fecha_evento'])); ?></div>
+                                            <?php if (!empty($evento['lugar'])): ?>
+                                                <div class="event-detail">📍 <?php echo htmlspecialchars($evento['lugar']); ?></div>
+                                            <?php endif; ?>
+                                            <div class="event-detail">📝 <?php echo htmlspecialchars($evento['descripcion']); ?></div>
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="event-item">
+                                        <div class="event-title">No hay eventos próximos</div>
+                                        <div class="event-detail">No hay eventos programados para los próximos días</div>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -319,47 +535,37 @@ try {
                             <div class="info-grid">
                                 <div class="info-item">
                                     <div class="info-label">DNI</div>
-                                    <div class="info-value" id="dniPadre"><?php echo $padre_data['dni']; ?></div>
+                                    <div class="info-value" id="dniPadre"><?php echo htmlspecialchars($padre_data['dni']); ?></div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Correo Electrónico</div>
-                                    <div class="info-value" id="emailPadre">Cargando...</div>
+                                    <div class="info-value" id="emailPadre"><?php echo htmlspecialchars($padre_data['email']); ?></div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Teléfono</div>
-                                    <div class="info-value" id="telefonoPadre"><?php echo $padre_data['telefono']; ?></div>
+                                    <div class="info-value" id="telefonoPadre"><?php echo htmlspecialchars($padre_data['telefono']); ?></div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Dirección</div>
-                                    <div class="info-value" id="direccionPadre"><?php echo $padre_data['direccion']; ?></div>
+                                    <div class="info-value" id="direccionPadre"><?php echo htmlspecialchars($padre_data['direccion']); ?></div>
                                 </div>
                             </div>
                         </div>
                         
                         <div class="profile-card">
                             <h3 style="color: #2c3e50; margin-bottom: 20px;">👧 Información del Estudiante</h3>
-                            <div class="info-grid">
+                            <div class="info-grid">                                
                                 <div class="info-item">
-                                    <div class="info-label">Nombre Completo</div>
-                                    <div id="studentName"><?php echo $estudiante_principal; ?></div>
-                                </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Grado</div>
-                                    <div id="studentGrade"><?php echo $grado_estudiante; ?></div>
-                                </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Sección</div>
-                                    <div id="tutorEstudiante"><?php echo $tutor_estudiante; ?></div>
+                                    <div class="info-label">Grado y Sección</div>
+                                    <div class="info-value"><?php echo htmlspecialchars($grado_estudiante); ?></div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Tutor</div>
-                                    <div class="info-value" id="tutorEstudiante">Cargando...</div>
+                                    <div class="info-value"><?php echo htmlspecialchars($tutor_estudiante); ?></div>
                                 </div>
                             </div>
                         </div>
@@ -370,12 +576,10 @@ try {
     </div>
 
     <script>
-        // Datos del usuario desde PHP
-        const nombres = "<?php echo $_SESSION['nombres']; ?>";
-        const apellidos = "<?php echo $_SESSION['apellidos']; ?>";
-        let mesActual = new Date().getMonth() + 1;
-        let anoActual = new Date().getFullYear();
-        
+        // Variables globales para el calendario
+        let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
+        const eventosCalendario = <?php echo json_encode($eventos); ?>;
+
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
             // Ocultar todos los módulos
@@ -402,20 +606,9 @@ try {
             };
             document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Padre';
             
-            // Cargar datos específicos del módulo
-            switch(moduleId) {
-                case 'tareas':
-                    cargarTareasCompletas();
-                    break;
-                case 'calendario':
-                    cargarCalendario();
-                    break;
-                case 'comunicados':
-                    cargarComunicados();
-                    break;
-                case 'perfil':
-                    // Los datos ya se cargan en inicialización
-                    break;
+            // Si es calendario, generarlo
+            if (moduleId === 'calendario') {
+                generarCalendario();
             }
         }
         
@@ -428,12 +621,6 @@ try {
         
         // Filtrar tareas
         function filtrarTareas(filtro) {
-            // Actualizar botones activos
-            document.querySelectorAll('.calendar-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
             const tareas = document.querySelectorAll('#listaTareas .task-item');
             tareas.forEach(tarea => {
                 const esCompletada = tarea.classList.contains('completed');
@@ -453,15 +640,19 @@ try {
             });
         }
         
-        // Generar calendario con eventos
-        function generarCalendarioConEventos(eventos, proximosEventos) {
+        // Generar calendario mejorado
+        function generarCalendario() {
             const calendarioGrid = document.getElementById('calendarioGrid');
-            const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-                          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+            const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
             
-            document.getElementById('mesActual').textContent = `${meses[mesActual-1]} ${anoActual}`;
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const today = new Date();
             
-            const diasSemana = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+            // Actualizar título del mes
+            document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
+            
             let html = '';
             
             // Encabezados de días
@@ -469,330 +660,86 @@ try {
                 html += `<div class="calendar-day-label">${dia}</div>`;
             });
             
-            // Días del mes
-            const diasEnMes = new Date(anoActual, mesActual, 0).getDate();
-            const primerDia = new Date(anoActual, mesActual-1, 1).getDay();
+            // Primer día del mes
+            const firstDay = new Date(year, month, 1);
+            // Días en el mes
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            // Día de la semana del primer día (0 = Domingo, 1 = Lunes, ...)
+            const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Ajuste para que empiece en Lunes
             
             // Días vacíos al inicio
-            for (let i = 0; i < primerDia; i++) {
-                html += `<div class="calendar-day empty"></div>`;
+            for (let i = 0; i < firstDayOfWeek; i++) {
+                html += `<div class="calendar-day inactive"></div>`;
             }
             
             // Días del mes
-            for (let i = 1; i <= diasEnMes; i++) {
+            for (let day = 1; day <= daysInMonth; day++) {
+                const currentDay = new Date(year, month, day);
                 let clase = 'calendar-day';
-                const hoy = new Date();
-                if (i === hoy.getDate() && mesActual === hoy.getMonth()+1 && anoActual === hoy.getFullYear()) {
+                
+                // Verificar si es hoy
+                if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
                     clase += ' today';
                 }
                 
                 // Verificar si hay eventos en este día
-                const fechaStr = `${anoActual}-${mesActual.toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`;
-                const tieneEvento = eventos.some(evento => evento.fecha_evento.startsWith(fechaStr));
-                if (tieneEvento) {
+                const tieneEventos = eventosCalendario.some(evento => {
+                    const eventoDate = new Date(evento.fecha_evento);
+                    return eventoDate.getDate() === day && 
+                           eventoDate.getMonth() === month && 
+                           eventoDate.getFullYear() === year;
+                });
+                
+                if (tieneEventos) {
                     clase += ' has-event';
                 }
                 
-                html += `<div class="${clase}" onclick="seleccionarDia(${i})">${i}</div>`;
+                html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
+                    ${day}
+                    ${tieneEventos ? '<div class="event-dot"></div>' : ''}
+                </div>`;
             }
             
             calendarioGrid.innerHTML = html;
-            
-            // Actualizar próximos eventos
-            actualizarProximosEventos(proximosEventos);
         }
         
-        function actualizarProximosEventos(eventos) {
-            const container = document.getElementById('listaEventos');
+        function seleccionarDia(dia, mes, ano) {
+            const fecha = new Date(ano, mes, dia);
+            const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
             
-            if (eventos.length === 0) {
-                container.innerHTML = '<div class="no-data">No hay eventos próximos</div>';
-                return;
-            }
-            
-            let html = '';
-            eventos.forEach(evento => {
-                const fecha = new Date(evento.fecha_evento);
-                const fechaStr = fecha.toLocaleDateString('es-ES', { 
-                    day: 'numeric', 
-                    month: 'long', 
-                    year: 'numeric'
-                });
-                
-                html += `
-                    <div class="event-item">
-                        <div class="event-title">${evento.titulo}</div>
-                        <div class="event-detail">📅 ${fechaStr}</div>
-                        ${evento.lugar ? `<div class="event-detail">📍 ${evento.lugar}</div>` : ''}
-                        ${evento.descripcion ? `<div class="event-detail">📝 ${evento.descripcion}</div>` : ''}
-                    </div>
-                `;
+            // Buscar eventos para este día
+            const eventosDia = eventosCalendario.filter(evento => {
+                const eventoDate = new Date(evento.fecha_evento);
+                return eventoDate.getDate() === dia && 
+                       eventoDate.getMonth() === mes && 
+                       eventoDate.getFullYear() === ano;
             });
             
-            container.innerHTML = html;
-        }
-        
-        function seleccionarDia(dia) {
-            alert(`Día ${dia} seleccionado - Funcionalidad en desarrollo`);
+            let mensaje = `📅 ${fechaFormateada}`;
+            
+            if (eventosDia.length > 0) {
+                mensaje += `\n\n📋 Eventos para este día:\n`;
+                eventosDia.forEach((evento, index) => {
+                    mensaje += `\n${index + 1}. ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
+                });
+            } else {
+                mensaje += `\n\nNo hay eventos programados para este día.`;
+            }
+            
+            alert(mensaje);
         }
         
         function cambiarMes(direccion) {
-            mesActual += direccion;
-            if (mesActual > 12) {
-                mesActual = 1;
-                anoActual++;
-            } else if (mesActual < 1) {
-                mesActual = 12;
-                anoActual--;
-            }
-            cargarCalendario();
-        }
-        
-        // Función para actualizar la lista completa de tareas
-        function actualizarListaTareas(tareas) {
-            const container = document.getElementById('listaTareas');
-            
-            if (tareas.length === 0) {
-                container.innerHTML = '<div class="no-data">No hay tareas registradas</div>';
-                return;
-            }
-
-            let html = '';
-            tareas.forEach(tarea => {
-                const fechaEntrega = new Date(tarea.fecha_entrega).toLocaleDateString('es-ES');
-                const fechaCreacion = new Date(tarea.fecha_creacion).toLocaleDateString('es-ES');
-                const estado = tarea.estado === 'completada' ? 'COMPLETADA' : 'PENDIENTE';
-                const claseEstado = tarea.estado === 'completada' ? 'status-completed' : 'status-pending';
-                const claseItem = tarea.estado === 'completada' ? 'completed' : 'pending';
-
-                html += `
-                    <div class="task-item ${claseItem}">
-                        <div class="task-info">
-                            <h3>📚 ${tarea.materia} - ${tarea.titulo}</h3>
-                            <p>${tarea.descripcion}</p>
-                            <div class="task-meta">
-                                📅 Vence: ${fechaEntrega} | 
-                                👨‍🏫 Prof. ${tarea.profesor_nombre} ${tarea.profesor_apellidos} | 
-                                📝 ${tarea.grado} ${tarea.seccion}
-                            </div>
-                        </div>
-                        <span class="task-status ${claseEstado}">${estado}</span>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = html;
-        }
-
-        // Función para actualizar comunicados
-        function actualizarComunicados(comunicados) {
-            const container = document.getElementById('listaComunicados');
-            
-            if (comunicados.length === 0) {
-                container.innerHTML = '<div class="no-data">No hay comunicados</div>';
-                return;
-            }
-
-            let html = '';
-            comunicados.forEach(comunicado => {
-                const fecha = new Date(comunicado.fecha_publicacion);
-                const fechaStr = fecha.toLocaleDateString('es-ES', { 
-                    day: 'numeric', 
-                    month: 'long', 
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
-                
-                const remitente = comunicado.remitente_nombre ? 
-                    `${comunicado.remitente_nombre} ${comunicado.remitente_apellidos}` : 
-                    'Dirección';
-
-                html += `
-                    <div class="message-card">
-                        <div class="message-header">
-                            <div>
-                                <div class="message-sender">${remitente}</div>
-                                <div class="message-date">${fechaStr}</div>
-                            </div>
-                            ${comunicado.es_nuevo ? '<span class="message-badge">NUEVO</span>' : ''}
-                        </div>
-                        <h3 class="message-title">${comunicado.titulo}</h3>
-                        <p class="message-text">${comunicado.mensaje}</p>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = html;
+            currentDate.setMonth(currentDate.getMonth() + direccion);
+            generarCalendario();
         }
         
         // Inicialización al cargar la página
         document.addEventListener('DOMContentLoaded', function() {
-            // Actualizar información del usuario
-            document.getElementById('userName').textContent = nombres + ' ' + apellidos;
-            
-            // Cargar datos iniciales
-            cargarDatosIniciales();
+            // Asegurar que el dashboard esté activo al inicio
+            loadModule('dashboard', document.querySelector('.nav-item.active'));
         });
-        
-        // Función para cargar datos desde APIs
-        async function cargarDatosIniciales() {
-            try {
-                const response = await fetch('/dashboard.php');
-                const data = await response.json();
-
-                if (data.success) {
-                    // Actualizar información del padre
-                    document.getElementById('userName').textContent = 
-                        data.padre.nombres + ' ' + data.padre.apellidos;
-                    document.getElementById('nombrePadre').textContent = 
-                        data.padre.nombres + ' ' + data.padre.apellidos;
-                    document.getElementById('dniPadre').textContent = data.padre.dni || 'No registrado';
-                    document.getElementById('emailPadre').textContent = data.padre.email;
-                    document.getElementById('telefonoPadre').textContent = data.padre.telefono || 'No registrado';
-                    document.getElementById('direccionPadre').textContent = data.padre.direccion || 'No registrada';
-
-                    // Actualizar información del estudiante
-                    if (data.estudiante_actual) {
-                        const estudiante = data.estudiante_actual;
-                        document.getElementById('studentName').textContent = 
-                            estudiante.nombres + ' ' + estudiante.apellidos;
-                        document.getElementById('studentGrade').textContent = 
-                            estudiante.grado + ' ' + estudiante.seccion;
-                        document.getElementById('nombreEstudiante').textContent = 
-                            estudiante.nombres + ' ' + estudiante.apellidos;
-                        document.getElementById('gradoEstudiante').textContent = estudiante.grado;
-                        document.getElementById('seccionEstudiante').textContent = estudiante.seccion;
-                    }
-
-                    // Actualizar estadísticas
-                    document.getElementById('tareasPendientes').textContent = 
-                        data.estadisticas.tareas_pendientes;
-                    document.getElementById('tareasCompletadas').textContent = 
-                        data.estadisticas.tareas_completadas;
-                    document.getElementById('diasProximoEvento').textContent = 
-                        data.estadisticas.dias_proximo_evento;
-                    document.getElementById('mensajesNuevos').textContent = 
-                        data.estadisticas.mensajes_nuevos;
-
-                    // Actualizar tareas recientes
-                    actualizarTareasRecientes(data.tareas_recientes);
-                    
-                } else {
-                    console.error('Error del servidor:', data.error);
-                    mostrarError('Error al cargar los datos: ' + data.error);
-                }
-
-            } catch (error) {
-                console.error('Error cargando datos:', error);
-                mostrarError('Error de conexión al cargar los datos');
-            }
-        }
-
-        // Función para actualizar la lista de tareas recientes
-        function actualizarTareasRecientes(tareas) {
-            const container = document.getElementById('tareasRecientes');
-            
-            if (!tareas || tareas.length === 0) {
-                container.innerHTML = '<div class="no-data">No hay tareas pendientes</div>';
-                return;
-            }
-
-            let html = '';
-            tareas.forEach(tarea => {
-                const fechaEntrega = new Date(tarea.fecha_entrega).toLocaleDateString('es-ES');
-                const estado = tarea.estado === 'completada' ? 'COMPLETADA' : 'PENDIENTE';
-                const claseEstado = tarea.estado === 'completada' ? 'status-completed' : 'status-pending';
-                const claseItem = tarea.estado === 'completada' ? 'completed' : 'pending';
-
-                html += `
-                    <div class="task-item ${claseItem}">
-                        <div class="task-info">
-                            <h3>📚 ${tarea.materia} - ${tarea.titulo}</h3>
-                            <p>${tarea.descripcion}</p>
-                            <div class="task-meta">
-                                📅 Vence: ${fechaEntrega} | 
-                                👨‍🏫 Prof. ${tarea.profesor_nombre} ${tarea.profesor_apellidos}
-                            </div>
-                        </div>
-                        <span class="task-status ${claseEstado}">${estado}</span>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = html;
-        }
-
-        // Función para cargar tareas completas
-        async function cargarTareasCompletas() {
-            try {
-                const container = document.getElementById('listaTareas');
-                container.innerHTML = '<div class="loading-message">Cargando tareas...</div>';
-                
-                const response = await fetch('/tareas.php');
-                const data = await response.json();
-
-                if (data.success) {
-                    actualizarListaTareas(data.tareas);
-                } else {
-                    container.innerHTML = '<div class="no-data">Error al cargar tareas</div>';
-                console.error('Error:', data.error);
-                }
-            } catch (error) {
-                console.error('Error cargando tareas:', error);
-                document.getElementById('listaTareas').innerHTML = '<div class="no-data">Error de conexión</div>';
-            }
-        }
-
-        // Función para cargar calendario
-        async function cargarCalendario() {
-            try {
-                const container = document.getElementById('calendarioGrid');
-                const eventosContainer = document.getElementById('listaEventos');
-                container.innerHTML = '<div class="loading-message">Cargando calendario...</div>';
-                eventosContainer.innerHTML = '<div class="loading-message">Cargando eventos...</div>';
-                
-                const response = await fetch(`/calendario.php?mes=${mesActual}&ano=${anoActual}`);
-                const data = await response.json();
-
-                if (data.success) {
-                    generarCalendarioConEventos(data.eventos, data.proximos_eventos);
-                } else {
-                    container.innerHTML = '<div class="no-data">Error al cargar calendario</div>';
-                    console.error('Error:', data.error);
-                }
-            } catch (error) {
-                console.error('Error cargando calendario:', error);
-                document.getElementById('calendarioGrid').innerHTML = '<div class="no-data">Error de conexión</div>';
-            }
-        }
-
-        // Función para cargar comunicados
-        async function cargarComunicados() {
-            try {
-                const container = document.getElementById('listaComunicados');
-                container.innerHTML = '<div class="loading-message">Cargando comunicados...</div>';
-                
-                const response = await fetch('comunicados.php');
-                const data = await response.json();
-
-                if (data.success) {
-                    actualizarComunicados(data.comunicados);
-                } else {
-                    container.innerHTML = '<div class="no-data">Error al cargar comunicados</div>';
-                    console.error('Error:', data.error);
-                }
-            } catch (error) {
-                console.error('Error cargando comunicados:', error);
-                document.getElementById('listaComunicados').innerHTML = '<div class="no-data">Error de conexión</div>';
-            }
-        }
-
-        // Función para mostrar errores
-        function mostrarError(mensaje) {
-            // Podrías implementar un sistema de notificaciones más elegante
-            console.error(mensaje);
-        }
     </script>
 </body>
 </html>

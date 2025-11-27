@@ -33,8 +33,6 @@ try {
     
     $stmt->execute([$_SESSION['user_id']]);
     $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $stmt->execute([$_SESSION['user_id']]);
-    $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Obtener lista de materias desde la BD
     $stmt = $conn->prepare("SELECT id, nombre FROM materias ORDER BY nombre ASC");
