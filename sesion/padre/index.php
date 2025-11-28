@@ -21,73 +21,71 @@ try {
     ");
     $stmt->execute([$_SESSION['user_id']]);
     $padre_data = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    // 2. Obtener estudiantes asociados al padre
+
     $stmt = $conn->prepare("
-        SELECT e.id as estudiante_id, u.nombres, u.apellidos, 
-               g.nombre as grado, g.seccion,
-               tu.nombres as tutor_nombre, tu.apellidos as tutor_apellidos
-        FROM estudiantes e 
-        INNER JOIN usuarios u ON e.usuario_id = u.id 
-        INNER JOIN grados g ON e.grado_id = g.id 
-        LEFT JOIN profesores pt ON g.tutor_id = pt.id 
-        LEFT JOIN usuarios tu ON pt.usuario_id = tu.id 
-        INNER JOIN padre_estudiante pe ON e.id = pe.estudiante_id 
-        INNER JOIN padres p ON pe.padre_id = p.id 
-        WHERE p.usuario_id = ?
-        ORDER BY g.nombre, u.nombres
+        SELECT g.id as grado_id
+        FROM padre_grado pg
+        INNER JOIN grados g ON pg.grado_id = g.id
+        WHERE pg.usuario_padre_id = ?
     ");
     $stmt->execute([$_SESSION['user_id']]);
-    $estudiantes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Formatear información del estudiante principal (primer estudiante)
-    $estudiante_principal = '';
-    $grado_estudiante = '';
-    $tutor_estudiante = '';
-    
-    if ($estudiantes && count($estudiantes) > 0) {
-        $primer_estudiante = $estudiantes[0];
-        $estudiante_principal = $primer_estudiante['nombres'] . ' ' . $primer_estudiante['apellidos'];
-        $grado_estudiante = $primer_estudiante['grado'] . ' ' . $primer_estudiante['seccion'];
-        $tutor_estudiante = $primer_estudiante['tutor_nombre'] . ' ' . $primer_estudiante['tutor_apellidos'];
-    } else {
-        $estudiante_principal = 'No asignado';
-        $grado_estudiante = 'No asignado';
-        $tutor_estudiante = 'No asignado';
-    }
-    
-    // 3. Obtener estadísticas de tareas del estudiante principal
+    $grados_padre = $stmt->fetchAll(PDO::FETCH_COLUMN); // Solo necesitamos los IDs
+
     $tareas_pendientes = 0;
-    $tareas_completadas = 0;
-    
-    if ($estudiantes && count($estudiantes) > 0) {
-        $estudiante_id = $estudiantes[0]['estudiante_id'];
-        
-        // Tareas pendientes
+    $tareas_recientes = [];
+    $tareas_totales = 0;
+
+    if (!empty($grados_padre)) {
+        $placeholders = str_repeat('?,', count($grados_padre) - 1) . '?';
+
+        // 3. Obtener TAREAS RECIENTES y PENDIENTES para el Dashboard
         $stmt = $conn->prepare("
-            SELECT COUNT(*) as total 
-            FROM estudiante_tarea et 
-            WHERE et.estudiante_id = ? 
-            AND et.estado = 'pendiente'
-            AND EXISTS (
-                SELECT 1 FROM tareas t 
-                WHERE t.id = et.tarea_id 
-                AND t.fecha_entrega >= CURDATE()
-            )
+            SELECT 
+                t.id, t.titulo, t.descripcion, t.fecha_entrega, 
+                m.nombre as materia, 
+                u.nombres as docente_nombres, u.apellidos as docente_apellidos,
+                CASE 
+                    WHEN t.fecha_entrega < CURDATE() THEN 'vencida'
+                    ELSE 'pendiente'
+                END as estado
+            FROM tareas t
+            INNER JOIN materias m ON t.materia_id = m.id
+            INNER JOIN docentes d ON t.docente_id = d.id 
+            INNER JOIN usuarios u ON d.usuario_id = u.id 
+            WHERE t.grado_id IN ($placeholders) 
+            ORDER BY t.fecha_entrega ASC, t.fecha_creacion DESC
+            LIMIT 5
         ");
-        $stmt->execute([$estudiante_id]);
-        $tareas_pendientes = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-        
-        // Tareas completadas
+        $stmt->execute($grados_padre);
+        $tareas_recientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Contar el total de tareas pendientes (vencidas + pendientes por fecha)
         $stmt = $conn->prepare("
-            SELECT COUNT(*) as total 
-            FROM estudiante_tarea et 
-            WHERE et.estudiante_id = ? 
-            AND et.estado = 'completada'
+            SELECT COUNT(t.id) as total_pendientes
+            FROM tareas t
+            WHERE t.grado_id IN ($placeholders)
+            AND t.fecha_entrega >= CURDATE()
         ");
-        $stmt->execute([$estudiante_id]);
-        $tareas_completadas = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+        $stmt->execute($grados_padre);
+        $tareas_pendientes = $stmt->fetch(PDO::FETCH_ASSOC)['total_pendientes'];
+
+        // Si desea incluir vencidas en el conteo 'Pendientes' del Dashboard (OPCIONAL)
+        $stmt = $conn->prepare("
+            SELECT COUNT(t.id) as total_vencidas
+            FROM tareas t
+            WHERE t.grado_id IN ($placeholders)
+            AND t.fecha_entrega < CURDATE()
+        ");
+        $stmt->execute($grados_padre);
+        $tareas_vencidas = $stmt->fetch(PDO::FETCH_ASSOC)['total_vencidas'];
+        
+        $tareas_pendientes += $tareas_vencidas;
     }
+    
+    // Asumiendo que el conteo de Tareas Completadas no está implementado
+    // Por ahora, lo dejamos en 0 o lo basamos en una tabla de 'entrega_tareas' si existiera
+    $tareas_completadas = 0;
+
     
     // 4. Obtener eventos del calendario para el padre (todos los eventos públicos)
     $stmt = $conn->prepare("
@@ -136,28 +134,6 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $comunicados_nuevos = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
-    // 7. Obtener tareas recientes del estudiante principal
-    $tareas_recientes = [];
-    if ($estudiantes && count($estudiantes) > 0) {
-        $estudiante_id = $estudiantes[0]['estudiante_id'];
-        
-        $stmt = $conn->prepare("
-            SELECT t.titulo, t.descripcion, t.fecha_entrega,
-                   m.nombre as materia,
-                   u.nombres as profesor_nombres, u.apellidos as profesor_apellidos,
-                   et.estado
-            FROM tareas t 
-            INNER JOIN materias m ON t.materia_id = m.id 
-            INNER JOIN usuarios u ON t.profesor_id = u.id 
-            INNER JOIN estudiante_tarea et ON t.id = et.tarea_id 
-            WHERE et.estudiante_id = ? 
-            ORDER BY t.fecha_entrega ASC 
-            LIMIT 5
-        ");
-        $stmt->execute([$estudiante_id]);
-        $tareas_recientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-    
 } catch (Exception $e) {
     // En caso de error, usar datos por defecto
     $padre_data = [
@@ -166,15 +142,11 @@ try {
         'direccion' => 'No disponible',
         'email' => $_SESSION['email'] ?? 'No disponible'
     ];
-    $estudiante_principal = 'No disponible';
-    $grado_estudiante = 'No disponible';
-    $tutor_estudiante = 'No disponible';
     $tareas_pendientes = 0;
     $tareas_completadas = 0;
     $dias_proximo_evento = 0;
     $comunicados_nuevos = 0;
     $tareas_recientes = [];
-    $estudiantes = [];
     $eventos = [];
 }
 
@@ -185,6 +157,7 @@ $ano_actual = $fecha_actual->format('Y');
 $dia_actual = $fecha_actual->format('j');
 ?>
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -394,15 +367,6 @@ $dia_actual = $fecha_actual->format('j');
         </div>
         
         <div class="main-content">
-            <div class="top-bar">
-                <div>
-                    <h2 id="moduleTitle">Dashboard</h2>
-                    <div class="breadcrumb" id="breadcrumb">
-                        Estudiante: <strong id="studentName"><?php echo $estudiante_principal; ?></strong> - 
-                        <span id="studentGrade"><?php echo $grado_estudiante; ?></span>
-                    </div>
-                </div>
-            </div>
             
             <div class="content-area">
                 <!-- DASHBOARD -->
@@ -437,17 +401,17 @@ $dia_actual = $fecha_actual->format('j');
                     <div class="task-list" id="tareasRecientes">
                         <?php if (!empty($tareas_recientes)): ?>
                             <?php foreach($tareas_recientes as $tarea): ?>
-                                <div class="task-item <?php echo $tarea['estado'] === 'completada' ? 'completed' : 'pending'; ?>">
+                                <div class="task-item <?php echo $tarea['estado'] === 'vencida' ? 'error' : 'pending'; ?>">
                                     <div class="task-info">
                                         <h3>📚 <?php echo htmlspecialchars($tarea['materia']); ?> - <?php echo htmlspecialchars($tarea['titulo']); ?></h3>
                                         <p><?php echo htmlspecialchars($tarea['descripcion']); ?></p>
                                         <div class="task-meta">
                                             📅 Vence: <?php echo date('d M Y', strtotime($tarea['fecha_entrega'])); ?> | 
-                                            👨‍🏫 Prof. <?php echo htmlspecialchars($tarea['profesor_nombres'] . ' ' . $tarea['profesor_apellidos']); ?>
+                                            👨‍🏫 Prof. <?php echo htmlspecialchars($tarea['docente_nombres'] . ' ' . $tarea['docente_apellidos']); ?>
                                         </div>
                                     </div>
-                                    <span class="task-status <?php echo $tarea['estado'] === 'completada' ? 'status-completed' : 'status-pending'; ?>">
-                                        <?php echo $tarea['estado'] === 'completada' ? 'COMPLETADA' : 'PENDIENTE'; ?>
+                                    <span class="task-status <?php echo $tarea['estado'] === 'vencida' ? 'status-error' : 'status-pending'; ?>">
+                                        <?php echo $tarea['estado'] === 'vencida' ? 'VENCIDA' : 'PENDIENTE'; ?>
                                     </span>
                                 </div>
                             <?php endforeach; ?>
@@ -459,17 +423,16 @@ $dia_actual = $fecha_actual->format('j');
                 
                 <!-- TAREAS -->
                 <div id="tareas" class="module-content">
-                    <div style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap;">
-                        <button class="calendar-btn active" onclick="filtrarTareas('todas')">Todas</button>
-                        <button class="calendar-btn" style="background: #f39c12;" onclick="filtrarTareas('pendientes')">Pendientes</button>
-                        <button class="calendar-btn" style="background: #2ecc71;" onclick="filtrarTareas('completadas')">Completadas</button>
+                    <div style="margin-bottom: 25px;">
+                        <h3 style="color: #2c3e50; margin-bottom: 15px;">📋 Tareas de los Grados Asignados</h3>
+                        <p style="color: #7f8c8d; font-size: 14px;">Lista de todas las tareas publicadas para los grados de sus hijos.</p>
                     </div>
                     
                     <div class="task-list" id="listaTareas">
                         <div class="loading-message">Cargando tareas...</div>
                     </div>
                 </div>
-                
+                                
                 <!-- CALENDARIO MEJORADO -->
                 <div id="calendario" class="module-content">
                     <div class="calendar-wrapper">
@@ -582,62 +545,46 @@ $dia_actual = $fecha_actual->format('j');
 
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
-            // Ocultar todos los módulos
-            document.querySelectorAll('.module-content').forEach(module => {
-                module.classList.remove('active');
-            });
-            
-            // Remover activo de todos los items del menú
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            
-            // Mostrar módulo seleccionado y activar item del menú
-            document.getElementById(moduleId).classList.add('active');
-            clickedElement.classList.add('active');
-            
-            // Actualizar título
-            const titles = {
-                'dashboard': 'Dashboard',
-                'tareas': 'Tareas',
-                'calendario': 'Calendario',
-                'comunicados': 'Comunicados',
-                'perfil': 'Mi Perfil'
-            };
-            document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Padre';
-            
-            // Si es calendario, generarlo
-            if (moduleId === 'calendario') {
-                generarCalendario();
-            }
+        // Ocultar todos los módulos
+        document.querySelectorAll('.module-content').forEach(module => {
+            module.classList.remove('active');
+        });
+        
+        // Remover activo de todos los items del menú
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Mostrar módulo seleccionado y activar item del menú
+        document.getElementById(moduleId).classList.add('active');
+        clickedElement.classList.add('active');
+        
+        // Actualizar título
+        const titles = {
+            'dashboard': 'Dashboard',
+            'tareas': 'Tareas',
+            'calendario': 'Calendario',
+            'comunicados': 'Comunicados',
+            'perfil': 'Mi Perfil'
+        };
+        document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Padre';
+        
+        // Si es calendario, generarlo
+        if (moduleId === 'calendario') {
+            generarCalendario();
         }
+        
+        // AÑADIDO: Si es tareas, cargar la lista
+        if (moduleId === 'tareas') {
+            cargarTareas();
+        }
+    }
         
         // Función de logout
         function handleLogout() {
             if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
                 window.location.href = '../../api/auth/logout.php';
             }
-        }
-        
-        // Filtrar tareas
-        function filtrarTareas(filtro) {
-            const tareas = document.querySelectorAll('#listaTareas .task-item');
-            tareas.forEach(tarea => {
-                const esCompletada = tarea.classList.contains('completed');
-                const esPendiente = tarea.classList.contains('pending');
-                
-                switch(filtro) {
-                    case 'todas':
-                        tarea.style.display = 'flex';
-                        break;
-                    case 'pendientes':
-                        tarea.style.display = esPendiente ? 'flex' : 'none';
-                        break;
-                    case 'completadas':
-                        tarea.style.display = esCompletada ? 'flex' : 'none';
-                        break;
-                }
-            });
         }
         
         // Generar calendario mejorado
@@ -733,6 +680,77 @@ $dia_actual = $fecha_actual->format('j');
         function cambiarMes(direccion) {
             currentDate.setMonth(currentDate.getMonth() + direccion);
             generarCalendario();
+        }
+
+        // NUEVA FUNCIÓN: Cargar tareas haciendo la petición al API
+        function cargarTareas() {
+            const listaTareas = document.getElementById('listaTareas');
+            listaTareas.innerHTML = '<div class="loading-message">Cargando tareas del grado...</div>';
+            
+            // Llama al nuevo endpoint
+            fetch('../../api/padre/obtener-tareas.php')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        actualizarListaTareas(data.tareas);
+                    } else {
+                        listaTareas.innerHTML = `<div class="no-data">Error al cargar tareas: ${data.message}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al obtener tareas:', error);
+                    listaTareas.innerHTML = '<div class="no-data">Error de conexión con el servidor.</div>';
+                });
+        }
+
+        // FUNCIÓN MODIFICADA: Renderizar la lista de tareas sin filtros
+        function actualizarListaTareas(tareas) {
+            const listaTareas = document.getElementById('listaTareas');
+            
+            if (tareas.length === 0) {
+                listaTareas.innerHTML = '<div class="no-data">No hay tareas publicadas para su(s) grado(s) actualmente.</div>';
+                return;
+            }
+
+            let html = '';
+            tareas.forEach(tarea => {
+                let textoEstado = tarea.estado_entrega.toUpperCase();
+                let colorEstado = '#7f8c8d'; // Default
+
+                switch (tarea.estado_entrega) {
+                    case 'vencida':
+                        colorEstado = '#e74c3c'; // Rojo
+                        break;
+                    case 'hoy':
+                        colorEstado = '#f39c12'; // Naranja
+                        break;
+                    case 'pendiente':
+                        colorEstado = '#3498db'; // Azul
+                        break;
+                }
+
+                html += `
+                    <div class="task-item">
+                        <div class="task-info">
+                            <h3>📚 ${tarea.materia_nombre} - ${tarea.titulo}</h3>
+                            <p>${tarea.descripcion}</p>
+                            <div class="task-meta">
+                                📅 Vence: ${new Date(tarea.fecha_entrega).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} | 
+                                👨‍🏫 Prof. ${tarea.docente_nombres} ${tarea.docente_apellidos} | 
+                                🎓 Grado: ${tarea.grado_nombre} ${tarea.seccion}
+                            </div>
+                        </div>
+                        <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
+                    </div>
+                `;
+            });
+            
+            listaTareas.innerHTML = html;
         }
         
         // Inicialización al cargar la página
