@@ -23,9 +23,16 @@ try {
 
     $stmt = $conn->prepare("
         SELECT 
-            g.id, g.nombre, COALESCE(g.seccion, '') AS seccion, g.tutor_id,
-            u.nombres AS tutor_nombres, u.apellidos AS tutor_apellidos, u.username AS tutor_username,
-            (SELECT COUNT(*) FROM estudiantes e WHERE e.grado_id = g.id) AS estudiantes_count
+            g.id, 
+            g.nivel,             -- AGREGADO
+            g.nombre,            -- AGREGADO
+            COALESCE(g.seccion, '') AS seccion, 
+            g.tutor_id,
+            d.id AS docente_id,
+            u.nombres AS tutor_nombres, 
+            u.apellidos AS tutor_apellidos, 
+            u.username AS tutor_username
+            -- Columna estudiantes_count ELIMINADA para evitar error 'no such table: estudiantes'
         FROM grados g
         LEFT JOIN docentes d ON g.tutor_id = d.id
         LEFT JOIN usuarios u ON d.usuario_id = u.id

@@ -17,17 +17,22 @@ try {
     $stmt = $conn->prepare("
         SELECT 
             g.id,
-            g.nombre,
+            g.nivel,                 -- Nivel (Primaria/Secundaria)
+            g.nombre,                -- Número del grado (1ro, 2do, etc.)
             COALESCE(g.seccion, '') AS seccion,
             g.tutor_id,
+            d.id AS docente_id,
             u.nombres AS tutor_nombres,
             u.apellidos AS tutor_apellidos,
-            u.username AS tutor_username,
-            (SELECT COUNT(*) FROM estudiantes e WHERE e.grado_id = g.id) AS estudiantes_count
+            u.username AS tutor_username
+            -- Columna estudiantes_count ELIMINADA para evitar error 'no such table: estudiantes'
         FROM grados g
         LEFT JOIN docentes d ON g.tutor_id = d.id
         LEFT JOIN usuarios u ON d.usuario_id = u.id
-        ORDER BY g.nombre, g.seccion
+        ORDER BY 
+            CASE g.nivel WHEN 'Primaria' THEN 1 WHEN 'Secundaria' THEN 2 ELSE 3 END, 
+            CAST(REPLACE(g.nombre, 'ro', '') AS INT), -- Ordena por número
+            g.seccion
     ");
     $stmt->execute();
     $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -35,6 +40,6 @@ try {
     echo json_encode(['success' => true, 'grados' => $grados]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Error del servidor']);
+    echo json_encode(['success' => false, 'message' => 'Error del servidor: ' . $e->getMessage()]);
 }
 ?>

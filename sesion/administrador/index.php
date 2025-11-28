@@ -163,7 +163,7 @@ try {
                 <div id="gestion-grados" class="module-content">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                         <h3 style="color: #2c3e50;">Gestión de Grados</h3>
-                        <button class="btn-login" onclick="mostrarModalCrearGrado()">➕ Crear Grado</button>
+
                     </div>
 
                     <div style="background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
@@ -172,7 +172,6 @@ try {
                                 <tr style="background: #f8f9fa; text-align: left;">
                                     <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Grado</th>
                                     <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Tutor</th>
-                                    <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Estudiantes</th>
                                     <th style="padding: 15px; border-bottom: 2px solid #e9ecef;">Acciones</th>
                                 </tr>
                             </thead>
@@ -250,27 +249,31 @@ try {
         </div>
     </div>
 
-    <!-- Modal para crear/editar grado -->
+
     <div id="modalGrado" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
         <div style="background: white; padding: 30px; border-radius: 12px; width: 500px; max-width: 90%;">
-            <h3 id="modalTituloGrado">Crear Grado</h3>
+            <h3 id="modalTituloGrado">Editar Grado: <span id="gradoNombreDisplay"></span></h3>
             <form id="formGrado">
                 <input type="hidden" id="gradoId">
+                <input type="hidden" id="gradoNombreCompleto">
                 
-                <div class="form-group">
-                    <label>Nombre del Grado</label>
-                    <input type="text" id="nombreGrado" required>
-                </div>
-
                 <div class="form-group">
                     <label>Tutor (Docente)</label>
                     <select id="selectTutor" required>
                         <option value="">Cargando docentes...</option>
                     </select>
                 </div>
+                
+                <div class="form-group">
+                    <label>Estado del Grado</label>
+                    <select id="estadoActivo" required>
+                        <option value="1">Activo</option>
+                        <option value="0">Inactivo</option>
+                    </select>
+                </div>
 
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button type="button" class="btn-login" onclick="guardarGrado()">💾 Guardar</button>
+                    <button type="button" class="btn-login" onclick="guardarTutorYEstado()">💾 Guardar</button>
                     <button type="button" class="btn-logout" onclick="cerrarModalGrado()">❌ Cancelar</button>
                 </div>
             </form>
@@ -532,7 +535,7 @@ try {
         }
 
         // Gestión de Grados
-        async function cargarGrados() {
+       async function cargarGrados() {
             try {
                 const response = await fetch('../../api/administrador/grados.php');
                 const data = await response.json();
@@ -559,20 +562,28 @@ try {
 
             let html = '';
             grados.forEach(g => {
-                const tutorNombre = g.tutor_nombres ? `${g.tutor_nombres} ${g.tutor_apellidos}` : (g.tutor_username || 'Sin tutor');
+                // Usar los campos nivel, nombre_grado y seccion
+                const displayNombre = `${g.nivel} ${g.nombre_grado} - ${g.seccion}`; 
+                const tutorNombre = g.tutor_nombres ? `${g.tutor_nombres} ${g.tutor_apellidos}` : 'Sin tutor';
                 const estudiantesCount = g.estudiantes_count !== undefined ? g.estudiantes_count : '-';
+                
+                const estadoTexto = g.activo == 1 ? 'Activo' : 'Inactivo';
+                const estadoColor = g.activo == 1 ? '#2ecc71' : '#e74c3c';
+                const toggleIcon = g.activo == 1 ? '🚫 Desactivar' : '✅ Activar';
+                const toggleColor = g.activo == 1 ? '#e74c3c' : '#2ecc71';
 
                 html += `
                 <tr style="border-bottom: 1px solid #f0f2f5;">
-                    <td style="padding: 15px; font-weight: 600;">${g.nombre}</td>
+                    <td style="padding: 15px; font-weight: 600;">${displayNombre}</td>
                     <td style="padding: 15px;">${tutorNombre}</td>
                     <td style="padding: 15px; text-align: center;">${estudiantesCount}</td>
                     <td style="padding: 15px;">
+                        <span style="color: ${estadoColor}; font-weight: 600; margin-right: 15px;">${estadoTexto}</span>
                         <button onclick="editarGrado(${g.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
-                            ✏️ Editar
+                            ✏️ Editar Tutor/Estado
                         </button>
-                        <button onclick="eliminarGrado(${g.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                            🗑️ Eliminar
+                        <button onclick="toggleGradoActivo(${g.id}, ${g.activo})" style="padding: 6px 12px; background: ${toggleColor}; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            ${toggleIcon}
                         </button>
                     </td>
                 </tr>
@@ -582,31 +593,25 @@ try {
             tbody.innerHTML = html;
         }
 
-        function mostrarModalCrearGrado() {
-            document.getElementById('modalTituloGrado').textContent = 'Crear Grado';
-            document.getElementById('formGrado').reset();
-            document.getElementById('gradoId').value = '';
-            document.getElementById('modalGrado').style.display = 'flex';
-        }
-
         function cerrarModalGrado() {
             document.getElementById('modalGrado').style.display = 'none';
         }
 
-        async function guardarGrado() {
+        async function guardarTutorYEstado() { 
             const gradoId = document.getElementById('gradoId').value;
-            const nombre = document.getElementById('nombreGrado').value.trim();
-            const tutorId = document.getElementById('selectTutor').value;
+            // Si el valor es "0", el PHP lo mapeará a NULL
+            const tutorId = document.getElementById('selectTutor').value; 
+            const activo = document.getElementById('estadoActivo').value;
 
-            if (!nombre || !tutorId) {
-                alert('Por favor completa el nombre del grado y selecciona un tutor.');
+            if (!gradoId || activo === '') {
+                alert('Por favor selecciona un tutor y un estado.');
                 return;
             }
 
-            const payload = { id: gradoId, nombre: nombre, tutor_id: tutorId };
+            const payload = { id: gradoId, tutor_id: tutorId, activo: activo };
 
             try {
-                const response = await fetch('../../api/administrador/guardar-grado.php', {
+                const response = await fetch('../../api/administrador/actualizar-grado.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -621,71 +626,66 @@ try {
                 }
             } catch (error) {
                 console.error('Error:', error);
-                alert('❌ Error de conexión');
+                alert('❌ Error de conexión al guardar el grado');
             }
         }
 
         async function editarGrado(id) {
             try {
-                const response = await fetch(`../../api/administrador/obtener-grado.php?id=${id}`);
-                const data = await response.json();
-                if (data.success) {
-                    const g = data.grado;
-                    document.getElementById('modalTituloGrado').textContent = 'Editar Grado';
-                    document.getElementById('gradoId').value = g.id;
-                    document.getElementById('nombreGrado').value = g.nombre || '';
-                    // cargarDocentes ya debe haber sido llamado para poblar select, pero aseguramos seleccionar
-                    await cargarDocentes(g.tutor_id);
-                    document.getElementById('modalGrado').style.display = 'flex';
-                } else {
-                    alert('❌ Error al cargar grado');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('❌ Error de conexión al cargar grado');
-            }
-        }
+        // 1. Obtener los datos del grado actual usando el ID
+        const response = await fetch(`../../api/administrador/obtener-grado.php?id=${id}`);
+        const data = await response.json();
 
-        async function eliminarGrado(id) {
-            if (!confirm('¿Seguro que deseas eliminar este grado? Esta acción es irreversible.')) return;
-            try {
-                const response = await fetch('../../api/administrador/eliminar-grado.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    alert('✅ ' + data.message);
-                    cargarGrados();
-                } else {
-                    alert('❌ ' + data.message);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('❌ Error de conexión');
-            }
+        if (data.success && data.grado) {
+            const grado = data.grado;
+            
+            // 2. Llenar campos de ID y nombres de display en el modal
+            document.getElementById('gradoId').value = grado.id;
+            const displayNombre = `${grado.nivel} ${grado.nombre} - ${grado.seccion}`;
+            document.getElementById('gradoNombreDisplay').textContent = displayNombre;
+            document.getElementById('gradoNombreCompleto').value = displayNombre; 
+
+            // 4. Cargar los docentes disponibles y preseleccionar el tutor actual
+            // Si grado.tutor_id es NULL, JS lo interpreta como NULL y selecciona la opción '0' ("Sin Tutor").
+            await cargarDocentesParaSelect(grado.tutor_id); 
+
+            // 5. Mostrar el modal de edición
+            document.getElementById('modalGrado').style.display = 'flex';
+        } else {
+            alert('❌ Error al obtener datos del grado: ' + (data.message || 'Desconocido'));
+        }
+    } catch (error) {
+        console.error('Error en editarGrado:', error);
+        alert('❌ Error de conexión al cargar datos del grado.');
+    }
         }
 
         // Cargar lista de docentes para asignar como tutores
-        async function cargarDocentes(selectIdToChoose = null) {
+        // Se modifica para incluir la opción "Sin tutor" y auto-seleccionar
+        async function cargarDocentesParaSelect(selectIdToChoose = null) {
             try {
                 const response = await fetch('../../api/administrador/docentes.php');
                 const data = await response.json();
                 const select = document.getElementById('selectTutor');
                 if (data.success && Array.isArray(data.docentes)) {
-                    let options = '<option value="">Seleccionar tutor...</option>';
+                    let options = '<option value="0">Sin tutor</option>'; // Opción para asignar NULL
                     data.docentes.forEach(d => {
-                        options += `<option value="${d.id}">${d.nombres} ${d.apellidos} (${d.username || d.email || 'docente'})</option>`;
+                        const selected = selectIdToChoose && selectIdToChoose == d.id ? 'selected' : '';
+                        options += `<option value="${d.id}" ${selected}>${d.nombres} ${d.apellidos} (${d.username || d.email || 'docente'})</option>`;
                     });
                     select.innerHTML = options;
-                    if (selectIdToChoose) select.value = selectIdToChoose;
+                    // Asegurar que el valor inicial sea 0 si no hay tutor o el valor correcto si lo hay
+                    if (selectIdToChoose === 0 || selectIdToChoose === null) {
+                        select.value = '0';
+                    } else if (selectIdToChoose) {
+                        select.value = selectIdToChoose;
+                    }
                 } else {
-                    select.innerHTML = '<option value="">No hay docentes</option>';
+                    select.innerHTML = '<option value="0">No hay docentes (o error)</option>';
                 }
             } catch (error) {
                 console.error('Error:', error);
-                document.getElementById('selectTutor').innerHTML = '<option value="">Error al cargar docentes</option>';
+                document.getElementById('selectTutor').innerHTML = '<option value="0">Error al cargar docentes</option>';
             }
         }
 
