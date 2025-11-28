@@ -1,5 +1,4 @@
 <?php
-// File: /api/administrador/guardar-accesos-padre.php
 session_start();
 header('Content-Type: application/json');
 

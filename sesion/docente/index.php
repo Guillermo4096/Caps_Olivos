@@ -372,38 +372,20 @@ $dia_actual = $fecha_actual->format('j');
                 
                 <!-- TAREAS -->
                 <div id="tareas" class="module-content">
-                    <div style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap;">
-                        <button class="calendar-btn" onclick="filtrarTareas('todas')">Todas</button>
-                        <button class="calendar-btn" style="background: #f39c12;" onclick="filtrarTareas('pendientes')">Pendientes</button>
-                        <button class="calendar-btn" style="background: #2ecc71;" onclick="filtrarTareas('completadas')">Completadas</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap;">
+                        <h3 style="color: #2c3e50; margin: 0;">📝 Mis Tareas Creadas</h3>
+                        <button class="btn-login" onclick="cargarTareas()">🔄 Actualizar Lista</button>
                     </div>
                     
-                    <div class="task-list">
-                        <div class="task-item pending">
-                            <div class="task-info">
-                                <h3>📐 Matemática - Geometría</h3>
-                                <p>Dibujar 5 figuras geométricas y escribir sus nombres</p>
-                                <div class="task-meta">📅 Vence: 12 Oct 2025 | 👨‍🏫 Prof. María García | 📝 3ro A</div>
-                            </div>
-                            <span class="task-status status-pending">PENDIENTE</span>
-                        </div>
-                        
-                        <div class="task-item pending">
-                            <div class="task-info">
-                                <h3>📖 Comunicación - Comprensión Lectora</h3>
-                                <p>Leer "El patito feo" y responder preguntas de la página 20</p>
-                                <div class="task-meta">📅 Vence: 13 Oct 2025 | 👨‍🏫 Prof. Carlos Ramos | 📝 3ro A</div>
-                            </div>
-                            <span class="task-status status-pending">PENDIENTE</span>
-                        </div>
-                        
-                        <div class="task-item completed">
-                            <div class="task-info">
-                                <h3>🔬 Ciencia - Los Animales</h3>
-                                <p>Clasificar 10 animales según su alimentación</p>
-                                <div class="task-meta">📅 Completada: 08 Oct 2025 | 👨‍🏫 Prof. Luis Torres | 📝 3ro A</div>
-                            </div>
-                            <span class="task-status status-completed">COMPLETADA</span>
+                    <div id="loadingTareas" style="text-align: center; padding: 20px; display: none;">
+                        <div style="color: #3498db; font-size: 16px;">Cargando tareas...</div>
+                    </div>
+                    
+                    <div id="listaTareasReal" class="task-list">
+                        <!-- Las tareas se cargarán aquí dinámicamente -->
+                        <div style="text-align: center; padding: 40px; color: #7f8c8d;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">📚</div>
+                            <p>No hay tareas creadas aún.</p>
                         </div>
                     </div>
                 </div>
@@ -445,7 +427,7 @@ $dia_actual = $fecha_actual->format('j');
                             
                             <div class="form-group">
                                 <label>Título de la Tarea</label>
-                                <input type="text" id="tituloTarea" placeholder="Ej: Suma y resta de números naturales" required>
+                                <input type="text" id="tituloTarea" required>
                             </div>
                             
                             <div class="form-group">
@@ -458,7 +440,7 @@ $dia_actual = $fecha_actual->format('j');
                                 <input type="date" id="fechaTarea" required>
                             </div>
                             
-                            <button type="button" class="btn-login" style="margin-top: 20px;" onclick="crearTarea()">📤 Publicar Tarea</button>
+                            <button id="btnPublicarTarea" type="button" class="btn-login" style="margin-top: 20px;" onclick="crearTarea()">📤 Publicar Tarea</button>
                         </form>
                     </div>
                 </div>
@@ -644,180 +626,364 @@ $dia_actual = $fecha_actual->format('j');
     </div>
 
     <script>
-        // Variables globales para el calendario
-        let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
-        const eventosCalendario = <?php echo json_encode($eventos); ?>;
+        // Variable global para guardar la carga académica
+            let cargaAcademicaGlobal = [];
 
-        // Función para cargar módulos
-        function loadModule(moduleId, clickedElement) {
-            // Ocultar todos los módulos
-            document.querySelectorAll('.module-content').forEach(module => {
-                module.classList.remove('active');
-            });
-            
-            // Remover activo de todos los items del menú
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
-            
-            // Mostrar módulo seleccionado y activar item del menú
-            document.getElementById(moduleId).classList.add('active');
-            clickedElement.classList.add('active');
-            
-            // Actualizar título
-            const titles = {
-                'dashboard': 'Dashboard',
-                'tareas': 'Tareas',
-                'crear-tarea': 'Crear Nueva Tarea',
-                'calendario': 'Calendario',
-                'comunicados': 'Comunicados',
-                'enviar-comunicado': 'Enviar Comunicado',
-                'perfil': 'Mi Perfil'
-            };
-            document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Docente';
-            
-            // Si es calendario, generarlo
-            if (moduleId === 'calendario') {
+            // Variables globales para el calendario
+            let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
+            const eventosCalendario = <?php echo json_encode($eventos); ?>;
+
+            // Función para cargar módulos
+            function loadModule(moduleId, clickedElement) {
+                // Ocultar todos los módulos
+                document.querySelectorAll('.module-content').forEach(module => {
+                    module.classList.remove('active');
+                });
+                
+                // Remover activo de todos los items del menú
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                
+                // Mostrar módulo seleccionado y activar item del menú
+                document.getElementById(moduleId).classList.add('active');
+                clickedElement.classList.add('active');
+                
+                // Actualizar título
+                const titles = {
+                    'dashboard': 'Dashboard',
+                    'tareas': 'Tareas',
+                    'crear-tarea': 'Crear Nueva Tarea',
+                    'calendario': 'Calendario',
+                    'comunicados': 'Comunicados',
+                    'enviar-comunicado': 'Enviar Comunicado',
+                    'perfil': 'Mi Perfil'
+                };
+                document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Docente';
+                
+                // Si es calendario, generarlo
+                if (moduleId === 'calendario') {
+                    generarCalendario();
+                }
+            }
+
+            // Función de logout
+            function handleLogout() {
+                if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
+                    window.location.href = '../../api/auth/logout.php';
+                }
+            }
+
+            // Filtrar tareas
+            function filtrarTareas(filtro) {
+                const tareas = document.querySelectorAll('#tareas .task-item');
+                tareas.forEach(tarea => {
+                    const esCompletada = tarea.classList.contains('completed');
+                    const esPendiente = tarea.classList.contains('pending');
+                    
+                    switch(filtro) {
+                        case 'todas':
+                            tarea.style.display = 'flex';
+                            break;
+                        case 'pendientes':
+                            tarea.style.display = esPendiente ? 'flex' : 'none';
+                            break;
+                        case 'completadas':
+                            tarea.style.display = esCompletada ? 'flex' : 'none';
+                            break;
+                    }
+                });
+            }
+
+            // Generar calendario mejorado
+            function generarCalendario() {
+                const calendarioGrid = document.getElementById('calendarioGrid');
+                const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+                const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                
+                const year = currentDate.getFullYear();
+                const month = currentDate.getMonth();
+                const today = new Date();
+                
+                // Actualizar título del mes
+                document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
+                
+                let html = '';
+                
+                // Encabezados de días
+                diasSemana.forEach(dia => {
+                    html += `<div class="calendar-day-label">${dia}</div>`;
+                });
+                
+                // Primer día del mes
+                const firstDay = new Date(year, month, 1);
+                // Días en el mes
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                // Día de la semana del primer día (0 = Domingo, 1 = Lunes, ...)
+                const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Ajuste para que empiece en Lunes
+                
+                // Días vacíos al inicio
+                for (let i = 0; i < firstDayOfWeek; i++) {
+                    html += `<div class="calendar-day inactive"></div>`;
+                }
+                
+                // Días del mes
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const currentDay = new Date(year, month, day);
+                    let clase = 'calendar-day';
+                    
+                    // Verificar si es hoy
+                    if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+                        clase += ' today';
+                    }
+                    
+                    // Verificar si hay eventos en este día
+                    const tieneEventos = eventosCalendario.some(evento => {
+                        const eventoDate = new Date(evento.fecha_evento);
+                        return eventoDate.getDate() === day && 
+                            eventoDate.getMonth() === month && 
+                            eventoDate.getFullYear() === year;
+                    });
+                    
+                    if (tieneEventos) {
+                        clase += ' has-event';
+                    }
+                    
+                    html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
+                        ${day}
+                        ${tieneEventos ? '<div class="event-dot"></div>' : ''}
+                    </div>`;
+                }
+                
+                calendarioGrid.innerHTML = html;
+            }
+
+            function seleccionarDia(dia, mes, ano) {
+                const fecha = new Date(ano, mes, dia);
+                const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
+                
+                // Buscar eventos para este día
+                const eventosDia = eventosCalendario.filter(evento => {
+                    const eventoDate = new Date(evento.fecha_evento);
+                    return eventoDate.getDate() === dia && 
+                        eventoDate.getMonth() === mes && 
+                        eventoDate.getFullYear() === ano;
+                });
+                
+                let mensaje = `📅 ${fechaFormateada}`;
+                
+                if (eventosDia.length > 0) {
+                    mensaje += `\n\n📋 Eventos para este día:\n`;
+                    eventosDia.forEach((evento, index) => {
+                        mensaje += `\n${index + 1}. ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
+                    });
+                } else {
+                    mensaje += `\n\nNo hay eventos programados para este día.`;
+                }
+                
+                alert(mensaje);
+            }
+
+            function cambiarMes(direccion) {
+                currentDate.setMonth(currentDate.getMonth() + direccion);
                 generarCalendario();
             }
-        }
-        
-        // Función de logout
-        function handleLogout() {
-            if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
-                window.location.href = '../../api/auth/logout.php';
-            }
-        }
-        
-        // Filtrar tareas
-        function filtrarTareas(filtro) {
-            const tareas = document.querySelectorAll('#tareas .task-item');
-            tareas.forEach(tarea => {
-                const esCompletada = tarea.classList.contains('completed');
-                const esPendiente = tarea.classList.contains('pending');
-                
-                switch(filtro) {
-                    case 'todas':
-                        tarea.style.display = 'flex';
-                        break;
-                    case 'pendientes':
-                        tarea.style.display = esPendiente ? 'flex' : 'none';
-                        break;
-                    case 'completadas':
-                        tarea.style.display = esCompletada ? 'flex' : 'none';
-                        break;
+
+            // Función para crear tarea desde el formulario visible
+            async function crearTarea() {
+                const form = document.getElementById('formCrearTarea');
+                if (!form.checkValidity()) {
+                    form.reportValidity();
+                    return;
                 }
-            });
-        }
-        
-        // Generar calendario mejorado
-        function generarCalendario() {
-            const calendarioGrid = document.getElementById('calendarioGrid');
-            const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-            const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-            
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth();
-            const today = new Date();
-            
-            // Actualizar título del mes
-            document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
-            
-            let html = '';
-            
-            // Encabezados de días
-            diasSemana.forEach(dia => {
-                html += `<div class="calendar-day-label">${dia}</div>`;
-            });
-            
-            // Primer día del mes
-            const firstDay = new Date(year, month, 1);
-            // Días en el mes
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            // Día de la semana del primer día (0 = Domingo, 1 = Lunes, ...)
-            const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Ajuste para que empiece en Lunes
-            
-            // Días vacíos al inicio
-            for (let i = 0; i < firstDayOfWeek; i++) {
-                html += `<div class="calendar-day inactive"></div>`;
-            }
-            
-            // Días del mes
-            for (let day = 1; day <= daysInMonth; day++) {
-                const currentDay = new Date(year, month, day);
-                let clase = 'calendar-day';
+
+                const gradoId = document.getElementById('gradoTarea').value;
+                const materiaId = document.getElementById('materiaTarea').value;
+                const titulo = document.getElementById('tituloTarea').value;
+                const descripcion = document.getElementById('descripcionTarea').value;
+                const fechaEntrega = document.getElementById('fechaTarea').value;
+
+                // Validar que se hayan seleccionado grado y materia
+                if (!gradoId || !materiaId) {
+                    alert('Por favor seleccione un grado y una materia');
+                    return;
+                }
+
+                // Validar fecha (no puede ser en el pasado)
+                const today = new Date().toISOString().split('T')[0];
+                if (fechaEntrega < today) {
+                    alert('La fecha de entrega no puede ser en el pasado');
+                    return;
+                }
+
+                const payload = {
+                    titulo: titulo,
+                    descripcion: descripcion,
+                    grado_id: parseInt(gradoId),
+                    materia_id: parseInt(materiaId),
+                    fecha_entrega: fechaEntrega
+                };
+
+                console.log('Enviando datos:', payload); // Para debug
+
+                const btn = document.getElementById('btnPublicarTarea');
                 
-                // Verificar si es hoy
-                if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
-                    clase += ' today';
+                try {
+                    btn.disabled = true;
+                    btn.textContent = 'Publicando...';
+
+                    const response = await fetch('../../api/docente/guardar-tarea.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        alert('✅ Tarea creada exitosamente');
+                        form.reset();
+                        
+                        // Recargar la página de tareas si estamos en esa vista
+                        if (typeof cargarTareas === 'function') {
+                            cargarTareas();
+                        }
+                        
+                    } else {
+                        alert('❌ Error: ' + (data.message || 'Error desconocido'));
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('❌ Error de conexión con el servidor');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = '📤 Publicar Tarea';
+                }
+            }
+
+            // Función para cargar tareas desde la base de datos
+            async function cargarTareas() {
+                const loadingDiv = document.getElementById('loadingTareas');
+                const listaTareas = document.getElementById('listaTareasReal');
+                
+                loadingDiv.style.display = 'block';
+                listaTareas.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">Cargando tareas...</div>';
+                
+                try {
+                    const response = await fetch('../../api/docente/obtener-tareas.php');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        actualizarListaTareas(data.tareas);
+                    } else {
+                        listaTareas.innerHTML = `
+                            <div style="text-align: center; padding: 20px; color: #e74c3c;">
+                                <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                                <p>Error al cargar las tareas: ${data.message || 'Error desconocido'}</p>
+                                <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    listaTareas.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #e74c3c;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">🔌</div>
+                            <p>Error de conexión con el servidor</p>
+                            <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
+                        </div>
+                    `;
+                } finally {
+                    loadingDiv.style.display = 'none';
+                }
+            }
+
+            // Función para actualizar la lista de tareas en la interfaz
+            function actualizarListaTareas(tareas) {
+                const listaTareas = document.getElementById('listaTareasReal');
+                
+                if (!tareas || tareas.length === 0) {
+                    listaTareas.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #7f8c8d;">
+                            <div style="font-size: 48px; margin-bottom: 10px;">📚</div>
+                            <p>No hay tareas creadas aún.</p>
+                            <button class="calendar-btn" onclick="loadModule('crear-tarea', document.querySelector('[onclick*=\"crear-tarea\"]'))">
+                                ➕ Crear Mi Primera Tarea
+                            </button>
+                        </div>
+                    `;
+                    return;
                 }
                 
-                // Verificar si hay eventos en este día
-                const tieneEventos = eventosCalendario.some(evento => {
-                    const eventoDate = new Date(evento.fecha_evento);
-                    return eventoDate.getDate() === day && 
-                           eventoDate.getMonth() === month && 
-                           eventoDate.getFullYear() === year;
+                let html = '';
+                tareas.forEach(tarea => {
+                    const fechaCreacion = new Date(tarea.fecha_creacion).toLocaleDateString('es-ES');
+                    const fechaEntrega = new Date(tarea.fecha_entrega).toLocaleDateString('es-ES');
+                    const hoy = new Date();
+                    const fechaEntregaObj = new Date(tarea.fecha_entrega);
+                    const diasRestantes = Math.ceil((fechaEntregaObj - hoy) / (1000 * 60 * 60 * 24));
+                    
+                    let estado = 'pending';
+                    let textoEstado = 'PENDIENTE';
+                    let colorEstado = '#f39c12';
+                    
+                    if (diasRestantes < 0) {
+                        estado = 'expired';
+                        textoEstado = 'VENCIDA';
+                        colorEstado = '#e74c3c';
+                    } else if (diasRestantes === 0) {
+                        textoEstado = 'HOY';
+                        colorEstado = '#e67e22';
+                    } else if (diasRestantes <= 3) {
+                        textoEstado = `URGENTE (${diasRestantes}d)`;
+                        colorEstado = '#e74c3c';
+                    }
+                    
+                    html += `
+                    <div class="task-item ${estado}">
+                        <div class="task-info">
+                            <h3>${tarea.materia_nombre} - ${tarea.titulo}</h3>
+                            <p>${tarea.descripcion || 'Sin descripción adicional'}</p>
+                            <div class="task-meta">
+                                📅 Creada: ${fechaCreacion} | 
+                                🎯 Entrega: ${fechaEntrega} | 
+                                🏫 ${tarea.grado_nombre} ${tarea.seccion} | 
+                                📚 ${tarea.materia_nombre}
+                            </div>
+                        </div>
+                        <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
+                    </div>
+                    `;
                 });
                 
-                if (tieneEventos) {
-                    clase += ' has-event';
+                listaTareas.innerHTML = html;
+            }
+
+            // Función para cargar tareas automáticamente al entrar al módulo
+            function cargarTareasAlEntrar() {
+                if (document.getElementById('tareas').classList.contains('active')) {
+                    cargarTareas();
                 }
+            }
+
+            function enviarComunicado() {
+                alert('Funcionalidad de enviar comunicado - Conectar con backend');
+            }
+
+            // Inicialización al cargar la página
+            document.addEventListener('DOMContentLoaded', function() {
+                // Asegurar que el dashboard esté activo al inicio
+                loadModule('dashboard', document.querySelector('.nav-item.active'));
                 
-                html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
-                    ${day}
-                    ${tieneEventos ? '<div class="event-dot"></div>' : ''}
-                </div>`;
-            }
-            
-            calendarioGrid.innerHTML = html;
-        }
-        
-        function seleccionarDia(dia, mes, ano) {
-            const fecha = new Date(ano, mes, dia);
-            const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
-            
-            // Buscar eventos para este día
-            const eventosDia = eventosCalendario.filter(evento => {
-                const eventoDate = new Date(evento.fecha_evento);
-                return eventoDate.getDate() === dia && 
-                       eventoDate.getMonth() === mes && 
-                       eventoDate.getFullYear() === ano;
+                // Establecer fecha mínima como hoy para el campo de fecha de tareas
+                const fechaInput = document.getElementById('fechaTarea');
+                if (fechaInput) {
+                    const today = new Date().toISOString().split('T')[0];
+                    fechaInput.min = today;
+                    fechaInput.value = today; // Opcional: establecer hoy como valor por defecto
+                }
             });
-            
-            let mensaje = `📅 ${fechaFormateada}`;
-            
-            if (eventosDia.length > 0) {
-                mensaje += `\n\n📋 Eventos para este día:\n`;
-                eventosDia.forEach((evento, index) => {
-                    mensaje += `\n${index + 1}. ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
-                });
-            } else {
-                mensaje += `\n\nNo hay eventos programados para este día.`;
-            }
-            
-            alert(mensaje);
-        }
-        
-        function cambiarMes(direccion) {
-            currentDate.setMonth(currentDate.getMonth() + direccion);
-            generarCalendario();
-        }
-        
-        function crearTarea() {
-            alert('Funcionalidad de crear tarea - Conectar con backend');
-        }
-        
-        function enviarComunicado() {
-            alert('Funcionalidad de enviar comunicado - Conectar con backend');
-        }
-        
-        // Inicialización al cargar la página
-        document.addEventListener('DOMContentLoaded', function() {
-            // Asegurar que el dashboard esté activo al inicio
-            loadModule('dashboard', document.querySelector('.nav-item.active'));
-        });
     </script>
 </body>
 </html>

@@ -1,5 +1,4 @@
 <?php
-// File: /api/administrador/actualizar-grado.php
 session_start();
 header('Content-Type: application/json');
 

@@ -1,5 +1,4 @@
 <?php
-// File: /api/administrador/docentes.php
 // Objetivo: Obtener la lista de todos los docentes activos para el select de tutor.
 
 session_start();

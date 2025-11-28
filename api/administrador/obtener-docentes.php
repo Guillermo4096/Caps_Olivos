@@ -1,5 +1,4 @@
 <?php
-// File: /api/administrador/obtener-docentes.php
 // Objetivo: Obtener la lista de todos los docentes activos para un select.
 
 session_start();

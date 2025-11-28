@@ -1,5 +1,4 @@
 <?php
-// File: /api/administrador/obtener-grados-padre.php
 session_start();
 header('Content-Type: application/json');
 
