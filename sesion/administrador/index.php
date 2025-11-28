@@ -79,9 +79,9 @@ try {
                     <span class="nav-icon">🏫</span>
                     <span>Gestión de Grados</span>
                 </div>
-                <div class="nav-item" onclick="loadModule('reportes', this)">
-                    <span class="nav-icon">📈</span>
-                    <span>Reportes</span>
+                <div class="nav-item" onclick="loadModule('gestion-padres', this)">
+                    <span class="nav-icon">👪</span>
+                    <span>Gestión de Padres</span>
                 </div>
             </div>
             
@@ -159,6 +159,7 @@ try {
                         </table>
                     </div>
                 </div>
+
                 <!-- Nuevo: GESTIÓN DE GRADOS -->
                 <div id="gestion-grados" class="module-content">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -183,6 +184,51 @@ try {
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- NUEVO! - GESTIÓN DE PADRES -->
+                <div id="gestion-padres" class="module-content" style="padding: 20px;">
+                    <h2>👪 Gestión de Padres</h2>
+                    <p>Administre la lista de padres y asigne los grados a los que deben tener acceso.</p>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <button id="btnRecargarPadres" onclick="cargarPadres()" style="padding: 10px 15px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">Recargar Padres</button>
+                    </div>
+                    
+                    <div class="tabla-contenedor">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                            <thead>
+                                <tr style="background-color: #f2f2f2;">
+                                    <th style="padding: 15px;">Usuario</th>
+                                    <th style="padding: 15px;">Nombre Completo</th>
+                                    <th style="padding: 15px;">Email</th>
+                                    <th style="padding: 15px;">Estado</th>
+                                    <th style="padding: 15px;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tablaPadres">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="modalPadreGrados" class="modal" style="display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center;">
+                    <div class="modal-content" style="background-color: #fefefe; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); width: 400px;">
+                        <span class="close-button" onclick="cerrarModalPadreGrados()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                        <h2 id="modalPadreGradosTitulo" style="margin-top: 0; border-bottom: 2px solid #ccc; padding-bottom: 10px;">Asignar Grados</h2>
+                        
+                        <input type="hidden" id="padreIdGrados">
+                        
+                        <form id="formPadreGrados" onsubmit="event.preventDefault(); guardarAccesosPadre();" style="margin-top: 20px;">
+                            <p>Seleccione los grados a los que este padre tendrá acceso:</p>
+                            
+                            <div id="gradosCheckboxesContainer" style="max-height: 250px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 20px;">
+                                Cargando grados...
+                            </div>
+                            
+                            <button type="submit" style="width: 100%; padding: 10px; background-color: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer;">Guardar Accesos</button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -294,7 +340,7 @@ try {
                 'dashboard': 'Dashboard Admin',
                 'gestion-usuarios': 'Gestión de Usuarios',
                 'gestion-grados': 'Gestión de Grados',
-                'reportes': 'Reportes'
+                'gestion-padres': 'Gestión de Padres',
             };
             document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Panel Admin';
             
@@ -305,6 +351,9 @@ try {
             if (moduleId === 'gestion-grados') {
                 cargarGrados();
                 cargarDocentesParaSelect();
+            }
+            if (moduleId === 'gestion-padres') { 
+                cargarPadres(); 
             }
         }
         
@@ -611,12 +660,12 @@ try {
                     alert('✅ ' + data.message);
                     cerrarModalGrado();
                     cargarGrados();
-                } else {
-                    alert('❌ ' + data.message);
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('❌ Error de conexión al guardar el tutor del grado');
+                } else { // AÑADIDO
+                    alert('❌ ' + data.message); // AÑADIDO
+                } // AÑADIDO
+            } catch (error) { // AÑADIDO
+                console.error('Error:', error); // AÑADIDO
+                alert('❌ Error de conexión al guardar tutor.'); // AÑADIDO
             }
         }
 
@@ -678,6 +727,154 @@ try {
             } catch (error) {
                 console.error('Error:', error);
                 document.getElementById('selectTutor').innerHTML = '<option value="0">Error al cargar docentes</option>';
+            }
+        }
+
+        // Función para asignar grados a un padre (abre modal)
+        // ===================================
+        // Funciones para Gestión de Padres
+        // ===================================
+        
+        // 1. Carga la lista filtrada de usuarios de tipo 'padre'
+        async function cargarPadres() {
+            try {
+                const response = await fetch('../../api/administrador/usuarios.php');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const padres = data.usuarios.filter(u => u.tipo === 'padre');
+                    actualizarTablaPadres(padres);
+                } else {
+                    document.getElementById('tablaPadres').innerHTML = 
+                        '<tr><td colspan="5" style="padding: 20px; text-align: center; color: #e74c3c;">Error al cargar usuarios</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('tablaPadres').innerHTML = 
+                    '<tr><td colspan="5" style="padding: 20px; text-align: center; color: #e74c3c;">Error de conexión</td></tr>';
+            }
+        }
+
+        // 2. Construye la tabla de padres
+        function actualizarTablaPadres(padres) {
+            const tbody = document.getElementById('tablaPadres');
+            if (!padres || padres.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay padres registrados</td></tr>';
+                return;
+            }
+
+            let html = '';
+            padres.forEach(usuario => {
+                const estadoTexto = usuario.activo === 1 ? 'Activo' : 'Inactivo';
+                const estadoColor = usuario.activo === 1 ? '#2ecc71' : '#e74c3c';
+
+                html += `
+                <tr style="border-bottom: 1px solid #f0f2f5;">
+                    <td style="padding: 15px; font-weight: 600;">${usuario.username}</td>
+                    <td style="padding: 15px;">${usuario.nombres} ${usuario.apellidos}</td>
+                    <td style="padding: 15px;">${usuario.email || 'No especificado'}</td>
+                    <td style="padding: 15px;">
+                        <span style="color: ${estadoColor}; font-weight: 600;">${estadoTexto}</span>
+                    </td>
+                    <td style="padding: 15px;">
+                        <button onclick="editarUsuario(${usuario.id})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
+                            ✏️ Editar Usuario
+                        </button>
+                        <button onclick="asignarGradosPadre(${usuario.id})" style="padding: 6px 12px; background: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 5px;">
+                            📚 Asignar Grados
+                        </button>
+                        <button onclick="desactivarUsuario(${usuario.id})" style="padding: 6px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            Desactivar/Activar
+                        </button>
+                    </td>
+                </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+
+        // 3. Función para asignar grados a un padre (abre modal)
+        async function asignarGradosPadre(padreId) {
+            // ... (Contenido de la función asignarGradosPadre que abre el modal y llama a obtener-grados-padre.php)
+            try {
+                const response = await fetch(`../../api/administrador/obtener-grados-padre.php?padre_id=${padreId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    const padre = data.padre;
+                    const grados = data.grados;
+                    
+                    document.getElementById('modalPadreGradosTitulo').textContent = `Asignar Grados a ${padre.nombres} ${padre.apellidos}`;
+                    document.getElementById('padreIdGrados').value = padreId;
+                    
+                    const container = document.getElementById('gradosCheckboxesContainer');
+                    container.innerHTML = '';
+                    
+                    if (grados.length === 0) {
+                        container.innerHTML = '<p style="color: #e74c3c;">No hay grados activos para asignar.</p>';
+                    } else {
+                        grados.forEach(grado => {
+                            const isChecked = grado.asignado == 1 ? 'checked' : '';
+                            const displayNombre = `${grado.nivel} ${grado.nombre} - ${grado.seccion}`;
+                            
+                            container.innerHTML += `
+                                <label style="display: block; margin-bottom: 8px;">
+                                    <input type="checkbox" name="grado_id" value="${grado.id}" ${isChecked}>
+                                    ${displayNombre}
+                                </label>
+                            `;
+                        });
+                    }
+                    document.getElementById('modalPadreGrados').style.display = 'flex';
+                } else {
+                    alert('❌ Error al cargar accesos del padre: ' + (data.message || 'Desconocido'));
+                }
+            } catch (error) {
+                console.error('Error en asignarGradosPadre:', error);
+                alert('❌ Error de conexión al cargar grados del padre.');
+            }
+        }
+
+        function cerrarModalPadreGrados() {
+            document.getElementById('modalPadreGrados').style.display = 'none';
+        }
+
+        // 4. Función para guardar las asignaciones al padre
+        async function guardarAccesosPadre() {
+            const padreId = document.getElementById('padreIdGrados').value;
+            const checkboxes = document.querySelectorAll('#gradosCheckboxesContainer input[name="grado_id"]:checked');
+            const gradoIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            if (!padreId) {
+                alert('ID de padre no encontrado.');
+                return;
+            }
+
+            const payload = { 
+                padre_id: padreId, 
+                grado_ids: gradoIds
+            };
+
+            try {
+                const response = await fetch('../../api/administrador/guardar-accesos-padre.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message);
+                    cerrarModalPadreGrados();
+                } else {
+                    alert('❌ ' + data.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('❌ Error de conexión al guardar accesos del padre.');
             }
         }
 
