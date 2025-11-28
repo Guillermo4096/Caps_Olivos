@@ -22,6 +22,7 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $padre_data = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    // 2. Obtener IDs de los Grados asignados al padre (LOGICA CORREGIDA)
     $stmt = $conn->prepare("
         SELECT g.id as grado_id
         FROM padre_grado pg
@@ -38,101 +39,48 @@ try {
     if (!empty($grados_padre)) {
         $placeholders = str_repeat('?,', count($grados_padre) - 1) . '?';
 
-        // 3. Obtener TAREAS RECIENTES y PENDIENTES para el Dashboard
-        $stmt = $conn->prepare("
-            SELECT 
-                t.id, t.titulo, t.descripcion, t.fecha_entrega, 
-                m.nombre as materia, 
-                u.nombres as docente_nombres, u.apellidos as docente_apellidos,
+        // 3. Obtener TAREAS RECIENTES, TOTALES Y PENDIENTES (LOGICA CORREGIDA)
+        
+        // A. Tareas Pendientes (COUNT): No vencidas
+        $stmt_count = $conn->prepare("
+            SELECT COUNT(t.id) 
+            FROM tareas t 
+            WHERE t.grado_id IN ($placeholders) AND t.fecha_entrega >= DATE('now')
+        ");
+        $stmt_count->execute($grados_padre);
+        $tareas_pendientes = $stmt_count->fetchColumn();
+
+        // B. Tareas Totales (COUNT)
+        $stmt_total = $conn->prepare("
+            SELECT COUNT(t.id) 
+            FROM tareas t 
+            WHERE t.grado_id IN ($placeholders)
+        ");
+        $stmt_total->execute($grados_padre);
+        $tareas_totales = $stmt_total->fetchColumn();
+
+
+        // C. Tareas Recientes (para mostrar en el dashboard)
+        $stmt_recientes = $conn->prepare("
+            SELECT t.titulo, t.descripcion, t.fecha_entrega, 
+                m.nombre AS materia_nombre, 
+                g.nombre AS grado_nombre, g.seccion,
+                u.nombres AS docente_nombres, u.apellidos AS docente_apellidos,
                 CASE 
-                    WHEN t.fecha_entrega < CURDATE() THEN 'vencida'
+                    WHEN t.fecha_entrega < DATE('now') THEN 'vencida'
+                    WHEN t.fecha_entrega = DATE('now') THEN 'hoy'
                     ELSE 'pendiente'
-                END as estado
+                END as estado_texto
             FROM tareas t
             INNER JOIN materias m ON t.materia_id = m.id
-            INNER JOIN docentes d ON t.docente_id = d.id 
-            INNER JOIN usuarios u ON d.usuario_id = u.id 
-            WHERE t.grado_id IN ($placeholders) 
-            ORDER BY t.fecha_entrega ASC, t.fecha_creacion DESC
+            INNER JOIN grados g ON t.grado_id = g.id
+            INNER JOIN docentes d ON t.docente_id = d.id
+            INNER JOIN usuarios u ON d.usuario_id = u.id
+            WHERE t.grado_id IN ($placeholders)
+            ORDER BY t.fecha_entrega ASC
             LIMIT 5
         ");
-        $stmt->execute($grados_padre);
-        $tareas_recientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Contar el total de tareas pendientes (vencidas + pendientes por fecha)
-        $stmt = $conn->prepare("
-            SELECT COUNT(t.id) as total_pendientes
-            FROM tareas t
-            WHERE t.grado_id IN ($placeholders)
-            AND t.fecha_entrega >= CURDATE()
-        ");
-        $stmt->execute($grados_padre);
-        $tareas_pendientes = $stmt->fetch(PDO::FETCH_ASSOC)['total_pendientes'];
-
-        // Si desea incluir vencidas en el conteo 'Pendientes' del Dashboard (OPCIONAL)
-        $stmt = $conn->prepare("
-            SELECT COUNT(t.id) as total_vencidas
-            FROM tareas t
-            WHERE t.grado_id IN ($placeholders)
-            AND t.fecha_entrega < CURDATE()
-        ");
-        $stmt->execute($grados_padre);
-        $tareas_vencidas = $stmt->fetch(PDO::FETCH_ASSOC)['total_vencidas'];
-        
-        $tareas_pendientes += $tareas_vencidas;
     }
-    
-    // Asumiendo que el conteo de Tareas Completadas no está implementado
-    // Por ahora, lo dejamos en 0 o lo basamos en una tabla de 'entrega_tareas' si existiera
-    $tareas_completadas = 0;
-
-    
-    // 4. Obtener eventos del calendario para el padre (todos los eventos públicos)
-    $stmt = $conn->prepare("
-        SELECT titulo, descripcion, fecha_evento, tipo, lugar 
-        FROM eventos 
-        WHERE destinatario = 'todos' OR destinatario = 'padres'
-        ORDER BY fecha_evento ASC
-        LIMIT 10
-    ");
-    $stmt->execute();
-    $eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // 5. Obtener próximo evento
-    $stmt = $conn->prepare("
-        SELECT titulo, fecha_evento, lugar 
-        FROM eventos 
-        WHERE fecha_evento >= CURDATE() 
-        AND activo = 1
-        AND (destinatario = 'todos' OR destinatario = 'padres')
-        ORDER BY fecha_evento ASC 
-        LIMIT 1
-    ");
-    $stmt->execute();
-    $proximo_evento = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    $dias_proximo_evento = 0;
-    if ($proximo_evento) {
-        $fecha_evento = new DateTime($proximo_evento['fecha_evento']);
-        $hoy = new DateTime();
-        $diferencia = $hoy->diff($fecha_evento);
-        $dias_proximo_evento = $diferencia->days;
-    }
-    
-    // 6. Obtener comunicados no leídos (últimos 7 días)
-    $stmt = $conn->prepare("
-        SELECT COUNT(*) as total 
-        FROM comunicados c 
-        WHERE c.fecha_publicacion >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        AND c.activo = 1
-        AND NOT EXISTS (
-            SELECT 1 FROM comunicados_leidos cl 
-            WHERE cl.comunicado_id = c.id 
-            AND cl.usuario_id = ?
-        )
-    ");
-    $stmt->execute([$_SESSION['user_id']]);
-    $comunicados_nuevos = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
 } catch (Exception $e) {
     // En caso de error, usar datos por defecto
@@ -401,17 +349,18 @@ $dia_actual = $fecha_actual->format('j');
                     <div class="task-list" id="tareasRecientes">
                         <?php if (!empty($tareas_recientes)): ?>
                             <?php foreach($tareas_recientes as $tarea): ?>
-                                <div class="task-item <?php echo $tarea['estado'] === 'vencida' ? 'error' : 'pending'; ?>">
+                                <div class="task-item <?php echo $tarea['estado_texto'] === 'vencida' ? 'error' : 'pending'; ?>">
                                     <div class="task-info">
-                                        <h3>📚 <?php echo htmlspecialchars($tarea['materia']); ?> - <?php echo htmlspecialchars($tarea['titulo']); ?></h3>
+                                        <h3>📚 <?php echo htmlspecialchars($tarea['materia_nombre']); ?> - <?php echo htmlspecialchars($tarea['titulo']); ?></h3>
                                         <p><?php echo htmlspecialchars($tarea['descripcion']); ?></p>
                                         <div class="task-meta">
                                             📅 Vence: <?php echo date('d M Y', strtotime($tarea['fecha_entrega'])); ?> | 
-                                            👨‍🏫 Prof. <?php echo htmlspecialchars($tarea['docente_nombres'] . ' ' . $tarea['docente_apellidos']); ?>
+                                            👨‍🏫 Prof. <?php echo htmlspecialchars($tarea['docente_nombres'] . ' ' . $tarea['docente_apellidos']); ?> |
+                                            🎓 Grado: <?php echo htmlspecialchars($tarea['grado_nombre'] . ' ' . $tarea['seccion']); ?>
                                         </div>
                                     </div>
-                                    <span class="task-status <?php echo $tarea['estado'] === 'vencida' ? 'status-error' : 'status-pending'; ?>">
-                                        <?php echo $tarea['estado'] === 'vencida' ? 'VENCIDA' : 'PENDIENTE'; ?>
+                                    <span class="task-status <?php echo $tarea['estado_texto'] === 'vencida' ? 'status-error' : 'status-pending'; ?>">
+                                        <?php echo strtoupper($tarea['estado_texto']); ?>
                                     </span>
                                 </div>
                             <?php endforeach; ?>
@@ -516,22 +465,7 @@ $dia_actual = $fecha_actual->format('j');
                                     <div class="info-value" id="direccionPadre"><?php echo htmlspecialchars($padre_data['direccion']); ?></div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="profile-card">
-                            <h3 style="color: #2c3e50; margin-bottom: 20px;">👧 Información del Estudiante</h3>
-                            <div class="info-grid">                                
-                                <div class="info-item">
-                                    <div class="info-label">Grado y Sección</div>
-                                    <div class="info-value"><?php echo htmlspecialchars($grado_estudiante); ?></div>
-                                </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Tutor</div>
-                                    <div class="info-value"><?php echo htmlspecialchars($tutor_estudiante); ?></div>
-                                </div>
-                            </div>
-                        </div>
+                        </div>                        
                     </div>
                 </div>
             </div>
@@ -545,40 +479,53 @@ $dia_actual = $fecha_actual->format('j');
 
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
-        // Ocultar todos los módulos
-        document.querySelectorAll('.module-content').forEach(module => {
-            module.classList.remove('active');
-        });
-        
-        // Remover activo de todos los items del menú
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Mostrar módulo seleccionado y activar item del menú
-        document.getElementById(moduleId).classList.add('active');
-        clickedElement.classList.add('active');
-        
-        // Actualizar título
-        const titles = {
-            'dashboard': 'Dashboard',
-            'tareas': 'Tareas',
-            'calendario': 'Calendario',
-            'comunicados': 'Comunicados',
-            'perfil': 'Mi Perfil'
-        };
-        document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Padre';
-        
-        // Si es calendario, generarlo
-        if (moduleId === 'calendario') {
-            generarCalendario();
+            console.log('Cargando módulo:', moduleId); // Para debug
+            
+            // Ocultar todos los módulos
+            document.querySelectorAll('.module-content').forEach(module => {
+                module.classList.remove('active');
+            });
+            
+            // Remover activo de todos los items del menú
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Mostrar módulo seleccionado y activar item del menú
+            const targetModule = document.getElementById(moduleId);
+            if (targetModule) {
+                targetModule.classList.add('active');
+            }
+            
+            if (clickedElement) {
+                clickedElement.classList.add('active');
+            }
+            
+            // Actualizar título
+            const titles = {
+                'dashboard': 'Dashboard',
+                'tareas': 'Tareas',
+                'calendario': 'Calendario',
+                'comunicados': 'Comunicados',
+                'perfil': 'Mi Perfil'
+            };
+            
+            const titleElement = document.getElementById('moduleTitle');
+            if (titleElement) {
+                titleElement.textContent = titles[moduleId] || 'Portal Padre';
+            }
+            
+            // Cargar contenido específico del módulo
+            if (moduleId === 'calendario') {
+                generarCalendario();
+            }
+            
+            // CORRECCIÓN: Asegurar que se carguen las tareas
+            if (moduleId === 'tareas') {
+                console.log('Iniciando carga de tareas...');
+                cargarTareas();
+            }
         }
-        
-        // AÑADIDO: Si es tareas, cargar la lista
-        if (moduleId === 'tareas') {
-            cargarTareas();
-        }
-    }
         
         // Función de logout
         function handleLogout() {
@@ -685,26 +632,35 @@ $dia_actual = $fecha_actual->format('j');
         // NUEVA FUNCIÓN: Cargar tareas haciendo la petición al API
         function cargarTareas() {
             const listaTareas = document.getElementById('listaTareas');
+            console.log('Iniciando carga de tareas...', listaTareas); // Debug
+            
+            if (!listaTareas) {
+                console.error('No se encontró el elemento listaTareas');
+                return;
+            }
+            
             listaTareas.innerHTML = '<div class="loading-message">Cargando tareas del grado...</div>';
             
-            // Llama al nuevo endpoint
+            // Llama al endpoint
             fetch('../../api/padre/obtener-tareas.php')
                 .then(response => {
+                    console.log('Respuesta recibida:', response.status);
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
                     }
                     return response.json();
                 })
                 .then(data => {
+                    console.log('Datos recibidos:', data);
                     if (data.success) {
                         actualizarListaTareas(data.tareas);
                     } else {
-                        listaTareas.innerHTML = `<div class="no-data">Error al cargar tareas: ${data.message}</div>`;
+                        listaTareas.innerHTML = `<div class="no-data">Error al cargar tareas: ${data.message || data.error}</div>`;
                     }
                 })
                 .catch(error => {
                     console.error('Error al obtener tareas:', error);
-                    listaTareas.innerHTML = '<div class="no-data">Error de conexión con el servidor.</div>';
+                    listaTareas.innerHTML = '<div class="no-data">Error de conexión con el servidor: ' + error.message + '</div>';
                 });
         }
 
@@ -720,9 +676,53 @@ $dia_actual = $fecha_actual->format('j');
             let html = '';
             tareas.forEach(tarea => {
                 let textoEstado = tarea.estado_entrega.toUpperCase();
-                let colorEstado = '#7f8c8d'; // Default
+                let colorEstado = '#7f8c8d';
 
                 switch (tarea.estado_entrega) {
+                    case 'vencida':
+                        colorEstado = '#e74c3c';
+                        break;
+                    case 'hoy':
+                        colorEstado = '#f39c12';
+                        break;
+                    case 'pendiente':
+                        colorEstado = '#3498db';
+                        break;
+                }
+
+                html += `
+                    <div class="task-item">
+                        <div class="task-info">
+                            <h3>📚 ${tarea.materia_nombre} - ${tarea.titulo}</h3>
+                            <p>${tarea.descripcion}</p>
+                            <div class="task-meta">
+                                📅 Vence: ${new Date(tarea.fecha_entrega).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} | 
+                                👨‍🏫 Prof. ${tarea.docente_nombres} ${tarea.docente_apellidos} | 
+                                🎓 Grado: ${tarea.grado_nombre} ${tarea.seccion}
+                            </div>
+                        </div>
+                        <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
+                    </div>
+                `;
+            });
+            
+            listaTareas.innerHTML = html;
+        }
+
+        function renderTareasRecientes(tareas) {
+            const listaTareas = document.getElementById('lista-tareas-recientes'); // Asegúrate de tener este ID
+            let html = '';
+
+            if (tareas.length === 0) {
+                listaTareas.innerHTML = '<p class="text-center">No hay tareas recientes asignadas.</p>';
+                return;
+            }
+
+            tareas.forEach(tarea => {
+                let colorEstado = '';
+                let textoEstado = tarea.estado_texto.charAt(0).toUpperCase() + tarea.estado_texto.slice(1);
+                
+                switch (tarea.estado_texto) {
                     case 'vencida':
                         colorEstado = '#e74c3c'; // Rojo
                         break;
@@ -755,8 +755,21 @@ $dia_actual = $fecha_actual->format('j');
         
         // Inicialización al cargar la página
         document.addEventListener('DOMContentLoaded', function() {
-            // Asegurar que el dashboard esté activo al inicio
-            loadModule('dashboard', document.querySelector('.nav-item.active'));
+            console.log('Página cargada, inicializando...');
+            
+            // Encuentra el elemento activo del menú
+            const activeNavItem = document.querySelector('.nav-item.active');
+            if (activeNavItem) {
+                // Asegura que el dashboard se cargue correctamente al inicio
+                loadModule('dashboard', activeNavItem);
+            } else {
+                // Fallback: activa el primer elemento del menú
+                const firstNavItem = document.querySelector('.nav-item');
+                if (firstNavItem) {
+                    firstNavItem.classList.add('active');
+                    loadModule('dashboard', firstNavItem);
+                }
+            }
         });
     </script>
 </body>
