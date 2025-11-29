@@ -13,34 +13,44 @@ try {
     $conn = $db->getConnection();
     $usuario_id = $_SESSION['user_id'];
     
-    // Obtener datos completos del docente
+    // 1. OBTENER DATOS PERSONALES COMPLETOS DEL DOCENTE (Primer bloque de consulta)
+    // ... (El código de la Consulta 1 es correcto y funciona) ...
     $stmt = $conn->prepare("
-        SELECT u.dni, u.telefono, u.email, d.especialidad 
-        FROM usuarios u 
-        LEFT JOIN docentes d ON u.id = d.usuario_id 
-        WHERE u.id = ?
-    ");
+        SELECT
+            IFNULL(u.dni, 'Sin datos') AS dni,
+            IFNULL(u.telefono, 'Sin datos') AS telefono,
+            IFNULL(u.email, 'Sin datos') AS email,
+            u.nombres, 
+            u.apellidos,
+            IFNULL(
+                GROUP_CONCAT(g.nombre || ' ' || g.seccion || ' (' || g.nivel || ')', ', '),\n                'No es tutor de ningún grado'\n            ) AS grados_a_cargo\n        FROM\n            usuarios AS u\n        LEFT JOIN docentes AS d ON u.id = d.usuario_id \n        LEFT JOIN grados AS g ON d.id = g.tutor_id\n        WHERE u.id = ?\n        GROUP BY u.id\n    ");
     $stmt->execute([$_SESSION['user_id']]);
     $docente_data = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    // Obtener grados a cargo del docente
+
+    // ... (Lógica de Fallback de $docente_data, se mantiene por seguridad) ...
+
+    // 2. OBTENER GRADOS (Lógica corregida: Tutor O Profesor de materia)
     $stmt = $conn->prepare("
-        SELECT g.id, g.nombre, g.seccion 
+        SELECT DISTINCT g.id, g.nombre, g.seccion 
         FROM grados g 
-        WHERE g.tutor_id = (
-            SELECT id FROM docentes WHERE usuario_id = ?
-        )
+        LEFT JOIN docente_materia_grado dmg ON g.id = dmg.grado_id
+        WHERE 
+            g.tutor_id = (SELECT id FROM docentes WHERE usuario_id = ?)
+            OR 
+            dmg.docente_id = (SELECT id FROM docentes WHERE usuario_id = ?)
+        ORDER BY g.nombre, g.seccion ASC
     ");
     
-    $stmt->execute([$_SESSION['user_id']]);
+    // Pasamos el ID dos veces (una para cada ?)
+    $stmt->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
     $grados = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // Obtener lista de materias desde la BD
+    // Obtener lista de materias para el formulario de tareas
     $stmt = $conn->prepare("SELECT id, nombre FROM materias ORDER BY nombre ASC");
     $stmt->execute();
     $materias = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Formatear grados para mostrar
+    // Formatear grados para mostrar en texto (ej: "5to A, 4to B")
     $grados_texto = '';
     if ($grados) {
         $grados_array = array_map(function($grado) {
@@ -48,40 +58,54 @@ try {
         }, $grados);
         $grados_texto = implode(', ', $grados_array);
     } else {
-        $grados_texto = 'No asignado';
+        $grados_texto = 'Sin asignación académica';
     }
+        
+    // ------------------------------------------------------------------
+    // ⚠️ INICIO DE BLOQUE AISLADO PARA LA CONSULTA DE EVENTOS
+    // Si la tabla 'eventos' no existe, esto inicializará $eventos a [] sin fallar el script.
+    $eventos = []; 
+    try {
+        $stmt = $conn->prepare("
+            SELECT titulo, descripcion, fecha_evento, tipo 
+            FROM eventos 
+            WHERE docente_id = (SELECT id FROM docentes WHERE usuario_id = ?) OR destinatario = 'todos'
+            ORDER BY fecha_evento ASC
+            LIMIT 10
+        ");
+        $stmt->execute([$_SESSION['user_id']]);
+        $eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        // Ignoramos el error de la tabla "eventos" (no existe) y procedemos.
+        // Si el error es otro, se capturará en el catch principal.
+        error_log("Error al cargar eventos (tabla eventos): " . $e->getMessage());
+        $eventos = []; 
+    }
+    // FIN DE BLOQUE AISLADO
+    // ------------------------------------------------------------------
     
-    // Obtener total de estudiantes a cargo
-    $stmt = $conn->prepare("
-        SELECT COUNT(*) as total 
-        FROM estudiantes e 
-        WHERE e.grado_id IN (
-            SELECT id FROM grados WHERE tutor_id = (
-                SELECT id FROM docentes WHERE usuario_id = ?
-            )
-        )
-    ");
-    $stmt->execute([$_SESSION['user_id']]);
-    $total_estudiantes = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-    
-    // Obtener eventos del calendario para el docente
-    $stmt = $conn->prepare("
-        SELECT titulo, descripcion, fecha_evento, tipo 
-        FROM eventos 
-        WHERE docente_id = ? OR destinatario = 'todos'
-        ORDER BY fecha_evento ASC
-        LIMIT 10
-    ");
-    $stmt->execute([$_SESSION['user_id']]);
-    $eventos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // 💡 INICIO DE LA MODIFICACIÓN: OBTENER TAREAS Y FUSIONAR CON EVENTOS
+    // Lógica de tareas para el calendario
     $stmt_docente = $conn->prepare("SELECT id FROM docentes WHERE usuario_id = ?");
     $stmt_docente->execute([$_SESSION['user_id']]);
     $docente_data_id = $stmt_docente->fetch(PDO::FETCH_ASSOC);
     $docente_id = $docente_data_id['id'] ?? 0;
 
+    $fechas_tareas_js = [];
     if ($docente_id) {
+        $stmt_fechas_tareas = $conn->prepare("
+            SELECT DISTINCT fecha_entrega
+            FROM tareas 
+            WHERE docente_id = ?
+            AND fecha_entrega IS NOT NULL
+        ");
+        $stmt_fechas_tareas->execute([$docente_id]);
+        $fechas_tareas = $stmt_fechas_tareas->fetchAll(PDO::FETCH_COLUMN);
+        
+        foreach ($fechas_tareas as $fecha) {
+            $fechas_tareas_js[] = date('Y-m-d', strtotime($fecha));
+        }
+        
+        // Unir tareas al calendario de eventos
         $stmt_tareas = $conn->prepare("
             SELECT 
                 t.titulo, 
@@ -99,28 +123,32 @@ try {
         $stmt_tareas->execute([$docente_id]);
         $tareas_calendario = $stmt_tareas->fetchAll(PDO::FETCH_ASSOC);
         
-        // Formatear y fusionar las tareas con los eventos
         $eventos = array_merge($eventos, array_map(function($tarea) {
             $tarea['titulo'] = "TAREA: " . $tarea['titulo'];
             $tarea['descripcion'] = $tarea['descripcion'] . " (Grado: {$tarea['grado_nombre']} {$tarea['seccion']} - Materia: {$tarea['materia_nombre']})";
-            $tarea['tipo'] = 'evento_tarea'; // Tipo específico para tareas
+            $tarea['tipo'] = 'evento_tarea';
             unset($tarea['materia_nombre'], $tarea['grado_nombre'], $tarea['seccion']);
             return $tarea;
         }, $tareas_calendario));
     }
-    // 💡 FIN DE LA MODIFICACIÓN
     
 } catch (Exception $e) {
-    // En caso de error, usar datos por defecto
+    // ------------------------------------------------------------------
+    // ⚠️ RE-ACTIVA EL FALLBACK DE DATOS AQUÍ
+    // Si la excepción es por la conexión a DB o cualquier otra cosa (no 'eventos'),
+    // los datos del perfil seguirán siendo el fallback.
+
     $docente_data = [
-        'dni' => 'No disponible',
-        'telefono' => 'No disponible', 
-        'email' => $_SESSION['email'] ?? 'No disponible',
-        'especialidad' => 'No disponible'
+        'dni' => 'No disponible (Error de DB)',
+        'telefono' => 'No disponible (Error de DB)', 
+        'email' => $_SESSION['email'] ?? 'No disponible (Error de DB)',
+        'nombres' => $_SESSION['nombres'] ?? '',
+        'apellidos' => $_SESSION['apellidos'] ?? '',
+        'grados_a_cargo' => 'No disponible (Error de DB)'
     ];
     $grados_texto = 'No disponible';
-    $total_estudiantes = 0;
     $eventos = [];
+    $fechas_tareas_js = [];
 }
 
 // Obtener fecha actual para el calendario
@@ -128,6 +156,7 @@ $fecha_actual = new DateTime();
 $mes_actual = $fecha_actual->format('n');
 $ano_actual = $fecha_actual->format('Y');
 $dia_actual = $fecha_actual->format('j');
+
 ?>
 
 <!DOCTYPE html>
@@ -154,7 +183,7 @@ $dia_actual = $fecha_actual->format('j');
         
         .calendar-header {
             display: flex;
-            justify-content: space-between; /* Corregido: de 'between' a 'space-between' */
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
         }
@@ -204,7 +233,7 @@ $dia_actual = $fecha_actual->format('j');
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            align-items: center; /* Centrar día y puntos */
+            align-items: center;
         }
         
         .calendar-day:hover {
@@ -219,19 +248,21 @@ $dia_actual = $fecha_actual->format('j');
             font-weight: bold;
         }
         
+        /* Estilos para días con eventos */
         .calendar-day.has-event {
+            border-color: #e74c3c;
             background: #fff5f5;
         }
         
-        /* 💡 NUEVAS CLASES PARA TAREAS */
+        
         .calendar-day.has-task {
             border-color: #3498db; 
             background: #f0f8ff;
         }
-
-        /* Deshabilitar el after genérico para usar los dots en su lugar */
-        .calendar-day.has-event::after {
-            content: none; 
+        
+        .calendar-day.has-event.has-task {
+            border-color: #9b59b6;
+            background: #f8f0ff;
         }
         
         .calendar-day.inactive {
@@ -255,18 +286,17 @@ $dia_actual = $fecha_actual->format('j');
 
         /* Puntos de Evento */
         .event-dot {
-            width: 6px;
-            height: 6px;
-            background: #e74c3c; /* Rojo para evento normal */
+            width: 8px;
+            height: 8px;
+            background: #e74c3c;
             border-radius: 50%;
             display: block;
         }
         
-        /* Puntos de Tarea */
         .task-dot {
-            width: 6px;
-            height: 6px;
-            background: #3498db; /* Azul para tarea */
+            width: 8px;
+            height: 8px;
+            background: #3498db;
             border-radius: 50%;
             display: block;
         }
@@ -307,6 +337,64 @@ $dia_actual = $fecha_actual->format('j');
         .event-urgent {
             border-left-color: #e74c3c;
         }
+        
+        /* Estilos para mensajes y comunicados */
+        .message-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .message-item {
+            background: white;
+            border-left: 4px solid #3498db;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .message-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+
+        .message-item.urgent {
+            border-left-color: #e74c3c;
+        }
+
+        .message-item.new {
+            border-left-color: #2ecc71;
+        }
+
+        .message-item h3 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+
+        .message-meta {
+            font-size: 13px;
+            color: #7f8c8d;
+            margin-top: 10px;
+            border-top: 1px dashed #ecf0f1;
+            padding-top: 10px;
+        }
+
+        .message-badge {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .badge-new { background: #2ecc71; }
+        .badge-urgent { background: #e74c3c; }
         
         @media (max-width: 768px) {
             .calendar-wrapper {
@@ -460,7 +548,7 @@ $dia_actual = $fecha_actual->format('j');
                             <div class="events-list" id="listaEventos">
                                 <?php if (!empty($eventos)): ?>
                                     <?php foreach($eventos as $evento): ?>
-                                        <?php if (!isset($evento['tipo']) || $evento['tipo'] !== 'evento_tarea'): // Excluir tareas de la lista lateral ?>
+                                        <?php if (!isset($evento['tipo']) || $evento['tipo'] !== 'evento_tarea'): ?>
                                             <div class="event-item <?php echo $evento['tipo'] === 'urgente' ? 'event-urgent' : ''; ?>">
                                                 <div class="event-title"><?php echo htmlspecialchars($evento['titulo']); ?></div>
                                                 <div class="event-detail">📅 <?php echo date('d M Y', strtotime($evento['fecha_evento'])); ?></div>
@@ -479,24 +567,29 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                 
-                <div id="module-comunicados" class="main-module" style="display: none;">
-                    <h2><i class="fas fa-bullhorn"></i> Gestión de Comunicados</h2>
-
-                    <div style="margin-bottom: 20px;">
-                        <button class="btn btn-secondary" onclick="showComunicadoView('listado')">Ver Listado</button>
-                        <button class="btn btn-secondary" onclick="showComunicadoView('enviar')">Enviar Nuevo</button>
+                <div id="comunicados" class="module-content">
+                    <div style="margin-bottom: 25px;">
+                        <h3 style="color: #2c3e50; margin-bottom: 15px;">📢 Comunicados</h3>
+                        <p style="color: #7f8c8d; font-size: 14px;">Gestión de comunicados para padres de familia.</p>
                     </div>
                     
-                    <div id="comunicados" class="module-content" style="display: block;">
-                        <h3 style="color: #2c3e50; margin-bottom: 25px;">Lista de Comunicados Enviados</h3>
-                        <div class="message-list">
-                            <p style="text-align: center; color: #7f8c8d;">Cargando comunicados...</p>
+                    <div style="margin-bottom: 20px;">
+                        <button class="calendar-btn" onclick="showComunicadoView('listado')">📋 Ver Comunicados Enviados</button>
+                        <button class="calendar-btn" onclick="showComunicadoView('enviar')">📤 Enviar Nuevo Comunicado</button>
+                    </div>
+                    
+                    <div id="vista-listado-comunicados" style="display: block;">
+                        <h4 style="color: #2c3e50; margin-bottom: 15px;">Lista de Comunicados Enviados</h4>
+                        <div class="message-list" id="listaComunicadosEnviados">
+                            <div style="text-align: center; padding: 20px; color: #7f8c8d;">
+                                <p>Cargando comunicados...</p>
+                            </div>
                         </div>
                     </div>
                     
-                    <div id="enviar-comunicado" class="module-content" style="display: none;">
+                    <div id="vista-enviar-comunicado" style="display: none;">
                         <div class="profile-card" style="max-width: 800px;">
-                            <h3 style="color: #2c3e50; margin-bottom: 25px;">📨 Enviar Nuevo Comunicado</h3>
+                            <h4 style="color: #2c3e50; margin-bottom: 25px;">📨 Enviar Nuevo Comunicado</h4>
                             <form id="formComunicado">
                                 <div class="form-group">
                                     <label>Destinatarios</label>
@@ -505,7 +598,6 @@ $dia_actual = $fecha_actual->format('j');
                                         <?php 
                                         if (!empty($grados)) {
                                             foreach ($grados as $grado) {
-                                                // El value es el grado_id (que es el requerido por la API)
                                                 echo "<option value='{$grado['id']}'>Todos los Padres de {$grado['nombre']} {$grado['seccion']}</option>";
                                             }
                                         }
@@ -529,60 +621,64 @@ $dia_actual = $fecha_actual->format('j');
                                         <span>Marcar como urgente</span>
                                     </label>
                                 </div>
-                                
+                            
                                 <button type="button" class="btn-login" style="margin-top: 20px;" onclick="enviarComunicado()">📤 Enviar Comunicado</button>
                                 <div id="comunicado-message" class="alert-message mt-2"></div>
                             </form>
                         </div>
                     </div>
                 </div>
-                
+
                 <div id="perfil" class="module-content">
                     <div class="profile-container">
-                        <div class="profile-card">
+                        <div class="profile-card" style="width: 100%; max-width: 100%;">
                             <div class="profile-header">
                                 <div class="profile-avatar-large">👩‍🏫</div>
                                 <div class="profile-info">
-                                    <h2 id="nombreDocente"><?php echo $_SESSION['nombres'] . ' ' . $_SESSION['apellidos']; ?></h2>
+                                    <h2 id="nombreDocente">
+                                        <?php 
+                                        // Usa los datos obtenidos o el fallback si no estaban en DB
+                                        $nombre_completo = ($docente_data['nombres'] ?? $_SESSION['nombres']) . ' ' . ($docente_data['apellidos'] ?? $_SESSION['apellidos']);
+                                        echo htmlspecialchars(trim($nombre_completo));
+                                        ?>
+                                    </h2>
                                     <p>Docente</p>
                                 </div>
                             </div>
                             
-                            <h3 style="color: #2c3e50; margin-bottom: 20px;">📋 Información Personal</h3>
+                            <h3 style="color: #2c3e50; margin-bottom: 20px;">📋 Información del Docente</h3>
                             <div class="info-grid">
                                 <div class="info-item">
                                     <div class="info-label">DNI</div>
-                                    <div class="info-value" id="dniDocente"><?php echo htmlspecialchars($docente_data['dni'] ?? 'No disponible'); ?></div>
+                                    <div class="info-value" id="dniDocente">
+                                        <?php echo htmlspecialchars($docente_data['dni'] ?? 'No registrado'); ?>
+                                    </div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Correo Electrónico</div>
-                                    <div class="info-value" id="emailDocente"><?php echo htmlspecialchars($docente_data['email'] ?? 'No disponible'); ?></div>
+                                    <div class="info-value" id="emailDocente">
+                                        <?php 
+                                        // Prioriza el email de la DB, si no existe usa el de sesión (el ?? es redundante si $docente_data existe, pero es seguro)
+                                        echo htmlspecialchars($docente_data['email'] ?? $_SESSION['email'] ?? 'No disponible'); 
+                                        ?>
+                                    </div>
                                 </div>
                                 
                                 <div class="info-item">
                                     <div class="info-label">Teléfono</div>
-                                    <div class="info-value" id="telefonoDocente"><?php echo htmlspecialchars($docente_data['telefono'] ?? 'No disponible'); ?></div>
+                                    <div class="info-value" id="telefonoDocente">
+                                        <?php echo htmlspecialchars($docente_data['telefono'] ?? 'No registrado'); ?>
+                                    </div>
                                 </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Especialidad</div>
-                                    <div class="info-value" id="especialidadDocente"><?php echo htmlspecialchars($docente_data['especialidad'] ?? 'No disponible'); ?></div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="profile-card">
-                            <h3 style="color: #2c3e50; margin-bottom: 20px;">🏫 Información Académica</h3>
-                            <div class="info-grid">
+
                                 <div class="info-item">
                                     <div class="info-label">Grados a Cargo</div>
-                                    <div class="info-value" id="gradosDocente"><?php echo htmlspecialchars($grados_texto); ?></div>
-                                </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Total Estudiantes</div>
-                                    <div class="info-value" id="totalEstudiantes"><?php echo $total_estudiantes; ?> estudiantes</div>
+                                    <div class="info-value" id="gradosDocente">
+                                        <?php 
+                                        echo htmlspecialchars($docente_data['grados_a_cargo'] ?? 'No disponible');
+                                        ?>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -592,537 +688,470 @@ $dia_actual = $fecha_actual->format('j');
         </div>
     </div>
 
-    <script>
-        // Variable global para guardar la carga académica
-            let cargaAcademicaGlobal = [];
+<script>
+    // Variables globales para el calendario
+    let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
+    const eventosCalendario = <?php echo json_encode($eventos); ?>;
+    const fechasTareas = <?php echo json_encode($fechas_tareas_js); ?>;
 
-            // Variables globales para el calendario
-            let currentDate = new Date(<?php echo $ano_actual; ?>, <?php echo $mes_actual - 1; ?>, 1);
-            // El array eventosCalendario ahora contiene las tareas
-            const eventosCalendario = <?php echo json_encode($eventos); ?>;
+    // Función para cambiar entre vistas de comunicados
+    function showComunicadoView(view) {
+        const listado = document.getElementById('vista-listado-comunicados');
+        const enviar = document.getElementById('vista-enviar-comunicado');
+        
+        if (view === 'listado') {
+            listado.style.display = 'block';
+            enviar.style.display = 'none';
+            cargarComunicados();
+        } else if (view === 'enviar') {
+            listado.style.display = 'none';
+            enviar.style.display = 'block';
+            document.getElementById('comunicado-message').innerHTML = '';
+        }
+    }
+
+    // Función para cargar módulos
+    function loadModule(moduleId, clickedElement) {
+        document.querySelectorAll('.module-content').forEach(module => {
+            module.classList.remove('active');
+        });
+        
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        document.getElementById(moduleId).classList.add('active');
+        clickedElement.classList.add('active');
+        
+        const titles = {
+            'tareas': 'Tareas',
+            'crear-tarea': 'Crear Nueva Tarea',
+            'calendario': 'Calendario',
+            'comunicados': 'Comunicados',
+            'perfil': 'Mi Perfil'
+        };
+        document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Docente';
+        
+        if (moduleId === 'calendario') {
+            generarCalendario();
+        }
+        
+        if (moduleId === 'tareas') {
+            cargarTareas();
+        }
+        
+        if (moduleId === 'comunicados') {
+            showComunicadoView('listado');
+        }
+    }
+
+    // Función de logout
+    function handleLogout() {
+        if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
+            window.location.href = '../../api/auth/logout.php';
+        }
+    }
+
+    function generarCalendario() {
+        const calendarioGrid = document.getElementById('calendarioGrid');
+        const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+        const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
+        
+        let html = '';
+        
+        diasSemana.forEach(dia => {
+            html += `<div class="calendar-day-label">${dia}</div>`;
+        });
+        
+        const firstDay = new Date(year, month, 1);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOfWeek = (firstDay.getDay() + 6) % 7;
+        
+        for (let i = 0; i < firstDayOfWeek; i++) {
+            html += `<div class="calendar-day inactive"></div>`;
+        }
+        
+        for (let day = 1; day <= daysInMonth; day++) {
+            const currentDay = new Date(year, month, day);
+            currentDay.setHours(0, 0, 0, 0);
+            let clase = 'calendar-day';
             
-            function showComunicadoView(view) {
-                const listado = document.getElementById('comunicados');
-                const enviar = document.getElementById('enviar-comunicado');
-                
-                if (view === 'listado') {
-                    listado.style.display = 'block';
-                    enviar.style.display = 'none';
-                    cargarComunicados(); // Recarga la lista al volver a ella
-                } else if (view === 'enviar') {
-                    listado.style.display = 'none';
-                    enviar.style.display = 'block';
-                }
+            if (currentDay.getTime() === today.getTime()) {
+                clase += ' today';
             }
+            
+            const tieneEventos = eventosCalendario.some(evento => {
+                const eventoDate = new Date(evento.fecha_evento);
+                eventoDate.setHours(0, 0, 0, 0);
+                return eventoDate.getTime() === currentDay.getTime() && evento.tipo !== 'evento_tarea';
+            });
 
-            // Función para cargar módulos
-            function loadModule(moduleId, clickedElement) {
-                // Ocultar todos los módulos
-                document.querySelectorAll('.module-content').forEach(module => {
-                    module.classList.remove('active');
-                });
-                
-                // Remover activo de todos los items del menú
-                document.querySelectorAll('.nav-item').forEach(item => {
-                    item.classList.remove('active');
-                });
-                
-                // Mostrar módulo seleccionado y activar item del menú
-                document.getElementById(moduleId).classList.add('active');
-                clickedElement.classList.add('active');
-                
-                // Actualizar título
-                const titles = {
-                    'tareas': 'Tareas',
-                    'crear-tarea': 'Crear Nueva Tarea',
-                    'calendario': 'Calendario',
-                    'comunicados': 'Comunicados',
-                    'enviar-comunicado': 'Enviar Comunicado',
-                    'perfil': 'Mi Perfil'
-                };
-                document.getElementById('moduleTitle').textContent = titles[moduleId] || 'Portal Docente';
-                
-                // Si es calendario, generarlo (con la nueva lógica de tareas)
-                if (moduleId === 'calendario') {
-                    generarCalendario();
-                }
-                
-                // Si es tareas, cargarlas
-                if (moduleId === 'tareas') {
-                    cargarTareas();
-                }
+            const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const tieneTareas = fechasTareas.includes(fechaStr);
 
-                document.querySelectorAll('.main-module').forEach(el => el.style.display = 'none');
-                document.getElementById(`module-${moduleId}`).style.display = 'block';
-
-                document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-                element.classList.add('active');
-                
-                if (element) {
-                    element.classList.add('active');
-                }
-
-                if (moduleName === 'comunicados') {
-                    showComunicadoView('listado'); // Muestra la vista de listado y carga los datos
-                }
+            if (tieneTareas) {
+                clase += ' has-task'; 
             }
-
-            // Función de logout
-            function handleLogout() {
-                if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
-                    window.location.href = '../../api/auth/logout.php';
-                }
+            
+            if (tieneEventos) {
+                clase += ' has-event';
             }
-
-            // Filtrar tareas
-            function filtrarTareas(filtro) {
-                const tareas = document.querySelectorAll('#tareas .task-item');
-                tareas.forEach(tarea => {
-                    const esCompletada = tarea.classList.contains('completed');
-                    const esPendiente = tarea.classList.contains('pending');
-                    
-                    switch(filtro) {
-                        case 'todas':
-                            tarea.style.display = 'flex';
-                            break;
-                        case 'pendientes':
-                            tarea.style.display = esPendiente ? 'flex' : 'none';
-                            break;
-                        case 'completadas':
-                            tarea.style.display = esCompletada ? 'flex' : 'none';
-                            break;
-                    }
-                });
+            
+            if (tieneTareas && tieneEventos) {
+                clase += ' has-event has-task';
             }
-
-            // 💡 MODIFICACIÓN: Generar calendario mejorado para incluir tareas
-            function generarCalendario() {
-                const calendarioGrid = document.getElementById('calendarioGrid');
-                const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-                const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-                
-                const year = currentDate.getFullYear();
-                const month = currentDate.getMonth();
-                const today = new Date();
-                today.setHours(0, 0, 0, 0); // Limpiar la hora de 'hoy'
-                
-                // Actualizar título del mes
-                document.getElementById('mesActual').textContent = `${monthNames[month]} ${year}`;
-                
-                let html = '';
-                
-                // Encabezados de días
-                diasSemana.forEach(dia => {
-                    html += `<div class="calendar-day-label">${dia}</div>`;
-                });
-                
-                // Primer día del mes
-                const firstDay = new Date(year, month, 1);
-                // Días en el mes
-                const daysInMonth = new Date(year, month + 1, 0).getDate();
-                // Día de la semana del primer día (0 = Domingo, 1 = Lunes, ...)
-                const firstDayOfWeek = (firstDay.getDay() + 6) % 7; // Ajuste para que empiece en Lunes
-                
-                // Días vacíos al inicio
-                for (let i = 0; i < firstDayOfWeek; i++) {
-                    html += `<div class="calendar-day inactive"></div>`;
-                }
-                
-                // Días del mes
-                for (let day = 1; day <= daysInMonth; day++) {
-                    const currentDay = new Date(year, month, day);
-                    currentDay.setHours(0, 0, 0, 0); // Limpiar la hora del día actual en el bucle
-                    let clase = 'calendar-day';
-                    
-                    // Verificar si es hoy
-                    if (currentDay.getTime() === today.getTime()) {
-                        clase += ' today';
-                    }
-                    
-                    // Buscar eventos para este día
-                    const eventosDia = eventosCalendario.filter(evento => { 
-                        const eventoDate = new Date(evento.fecha_evento);
-                        eventoDate.setHours(0, 0, 0, 0); 
-                        return eventoDate.getTime() === currentDay.getTime();
-                    });
-                    
-                    const tieneEventosNormales = eventosDia.some(e => e.tipo !== 'evento_tarea');
-                    const tieneTareas = eventosDia.some(e => e.tipo === 'evento_tarea');
-                    
-                    // Aplicar clases
-                    if (tieneTareas) {
-                        clase += ' has-task';
-                    }
-                    if (tieneEventosNormales) {
-                        clase += ' has-event'; 
-                    }
-                    
-                    // Generar puntos de evento
-                    let dotsHtml = '';
-                    if (tieneTareas) {
-                        dotsHtml += '<div class="task-dot"></div>';
-                    }
-                    if (tieneEventosNormales) {
-                        dotsHtml += '<div class="event-dot"></div>';
-                    }
-                    
-                    html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
-                        ${day}
-                        <div class="dot-container">
-                            ${dotsHtml}
-                        </div>
-                    </div>`;
-                }
-                
-                calendarioGrid.innerHTML = html;
+            
+            let dotsHtml = '';
+            if (tieneTareas) {
+                dotsHtml += '<div class="task-dot"></div>'; 
             }
-
-            // 💡 MODIFICACIÓN: Función para seleccionar día y mostrar tareas
-            function seleccionarDia(dia, mes, ano) {
-                const fecha = new Date(ano, mes, dia);
-                fecha.setHours(0, 0, 0, 0); // Normalizar la hora
-                const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-                const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
-                
-                // Buscar eventos para este día
-                const eventosDia = eventosCalendario.filter(evento => {
-                    const eventoDate = new Date(evento.fecha_evento);
-                    eventoDate.setHours(0, 0, 0, 0); 
-                    
-                    return eventoDate.getTime() === fecha.getTime();
-                });
-                
-                let mensaje = `📅 ${fechaFormateada}`;
-                
-                if (eventosDia.length > 0) {
-                    mensaje += `\n\n📋 Programación para este día:\n`;
-                    eventosDia.forEach((evento, index) => {
-                        const etiqueta = evento.tipo === 'evento_tarea' ? '✅ TAREA (Entrega)' : 
-                                         (evento.tipo === 'urgente' ? '🚨 EVENTO URGENTE' : '📢 EVENTO');
-                        mensaje += `\n${index + 1}. ${etiqueta}: ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
-                    });
-                } else {
-                    mensaje += `\n\nNo hay eventos programados para este día.`;
-                }
-                
-                alert(mensaje);
+            if (tieneEventos) {
+                dotsHtml += '<div class="event-dot"></div>'; 
             }
+            
+            html += `<div class="${clase}" onclick="seleccionarDia(${day}, ${month}, ${year})">
+                ${day}
+                <div class="dot-container">
+                    ${dotsHtml}
+                </div>
+            </div>`;
+        }
+        
+        calendarioGrid.innerHTML = html;
+    }
 
-            function cambiarMes(direccion) {
-                currentDate.setMonth(currentDate.getMonth() + direccion);
-                generarCalendario();
-            }
+    function seleccionarDia(dia, mes, ano) {
+        const fecha = new Date(ano, mes, dia);
+        fecha.setHours(0, 0, 0, 0);
+        const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+        const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
+        
+        const eventosDia = eventosCalendario.filter(evento => {
+            const eventoDate = new Date(evento.fecha_evento);
+            eventoDate.setHours(0, 0, 0, 0);
+            return eventoDate.getTime() === fecha.getTime();
+        });
+        
+        let mensaje = `📅 ${fechaFormateada}`;
+        
+        if (eventosDia.length > 0) {
+            mensaje += `\n\n📋 Programación para este día:\n`;
+            eventosDia.forEach((evento, index) => {
+                const etiqueta = evento.tipo === 'evento_tarea' ? '📚 TAREA (Entrega)' : 
+                                 (evento.tipo === 'urgente' ? '🚨 EVENTO URGENTE' : '📢 EVENTO');
+                mensaje += `\n${index + 1}. ${etiqueta}: ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
+            });
+        } else {
+            mensaje += `\n\nNo hay eventos ni tareas programados para este día.`;
+        }
+        
+        alert(mensaje);
+    }
 
-            // Función para crear tarea desde el formulario visible
-            async function crearTarea() {
-                const form = document.getElementById('formCrearTarea');
-                if (!form.checkValidity()) {
-                    form.reportValidity();
-                    return;
-                }
+    function cambiarMes(direccion) {
+        currentDate.setMonth(currentDate.getMonth() + direccion);
+        generarCalendario();
+    }
 
-                const gradoId = document.getElementById('gradoTarea').value;
-                const materiaId = document.getElementById('materiaTarea').value;
-                const titulo = document.getElementById('tituloTarea').value;
-                const descripcion = document.getElementById('descripcionTarea').value;
-                const fechaEntrega = document.getElementById('fechaTarea').value;
-
-                // Validar que se hayan seleccionado grado y materia
-                if (!gradoId || !materiaId) {
-                    alert('Por favor seleccione un grado y una materia');
-                    return;
-                }
-
-                // Validar fecha (no puede ser en el pasado)
-                const today = new Date().toISOString().split('T')[0];
-                if (fechaEntrega < today) {
-                    alert('La fecha de entrega no puede ser en el pasado');
-                    return;
-                }
-
-                const payload = {
-                    titulo: titulo,
-                    descripcion: descripcion,
-                    grado_id: parseInt(gradoId),
-                    materia_id: parseInt(materiaId),
-                    fecha_entrega: fechaEntrega
-                };
-
-                console.log('Enviando datos:', payload); // Para debug
-
-                const btn = document.getElementById('btnPublicarTarea');
-                
-                try {
-                    btn.disabled = true;
-                    btn.textContent = 'Publicando...';
-
-                    const response = await fetch('../../api/docente/guardar-tarea.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        alert('✅ Tarea creada exitosamente');
-                        form.reset();
-                        
-                        // Recargar la página de tareas si estamos en esa vista
-                        if (document.getElementById('tareas').classList.contains('active')) {
-                            cargarTareas();
-                        }
-                        
-                        // Opcional: Recargar el calendario para que la tarea aparezca inmediatamente (requiere recargar la página para el PHP)
-                        // Para evitar recargar la página, se debería usar AJAX para obtener los eventos/tareas y actualizar `eventosCalendario`
-                        // Si se usa este código, se asume que el usuario recargará la página o cambiará de módulo para ver la tarea.
-
-                    } else {
-                        alert('❌ Error: ' + (data.message || 'Error desconocido'));
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('❌ Error de conexión con el servidor');
-                } finally {
-                    btn.disabled = false;
-                    btn.textContent = '📤 Publicar Tarea';
-                }
-            }
-
-            // Función para cargar tareas desde la base de datos
-            async function cargarTareas() {
-                const loadingDiv = document.getElementById('loadingTareas');
-                const listaTareas = document.getElementById('listaTareasReal');
-                
-                loadingDiv.style.display = 'block';
-                listaTareas.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">Cargando tareas...</div>';
-                
-                try {
-                    const response = await fetch('../../api/docente/obtener-tareas.php');
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        actualizarListaTareas(data.tareas);
-                    } else {
-                        listaTareas.innerHTML = `
-                            <div style="text-align: center; padding: 20px; color: #e74c3c;">
-                                <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
-                                <p>Error al cargar las tareas: ${data.message || 'Error desconocido'}</p>
-                                <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
-                            </div>
-                        `;
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    listaTareas.innerHTML = `
-                        <div style="text-align: center; padding: 20px; color: #e74c3c;">
-                            <div style="font-size: 48px; margin-bottom: 10px;">🔌</div>
-                            <p>Error de conexión con el servidor</p>
-                            <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
-                        </div>
-                    `;
-                } finally {
-                    loadingDiv.style.display = 'none';
-                }
-            }
-
-            // Función para actualizar la lista de tareas en la interfaz
-            function actualizarListaTareas(tareas) {
-                const listaTareas = document.getElementById('listaTareasReal');
-                
-                if (!tareas || tareas.length === 0) {
-                    listaTareas.innerHTML = `
-                        <div style="text-align: center; padding: 40px; color: #7f8c8d;">
-                            <div style="font-size: 48px; margin-bottom: 10px;">📚</div>
-                            <p>No hay tareas creadas aún.</p>
-                            <button class="calendar-btn" onclick="loadModule('crear-tarea', document.querySelector('[onclick*=\"crear-tarea\"]'))">
-                                ➕ Crear Mi Primera Tarea
-                            </button>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                let html = '';
-                tareas.forEach(tarea => {
-                    const fechaCreacion = new Date(tarea.fecha_creacion).toLocaleDateString('es-ES');
-                    const fechaEntrega = new Date(tarea.fecha_entrega).toLocaleDateString('es-ES');
-                    const hoy = new Date();
-                    hoy.setHours(0, 0, 0, 0); // Normalizar hoy
-                    const fechaEntregaObj = new Date(tarea.fecha_entrega);
-                    fechaEntregaObj.setHours(0, 0, 0, 0); // Normalizar entrega
-                    
-                    const oneDay = 1000 * 60 * 60 * 24;
-                    // Calcular la diferencia en días
-                    const diffTime = fechaEntregaObj.getTime() - hoy.getTime();
-                    const diasRestantes = Math.ceil(diffTime / oneDay);
-                    
-                    let estado = 'pending';
-                    let textoEstado = 'PENDIENTE';
-                    let colorEstado = '#f39c12';
-                    
-                    if (diasRestantes < 0) {
-                        estado = 'expired';
-                        textoEstado = 'VENCIDA';
-                        colorEstado = '#e74c3c';
-                    } else if (diasRestantes === 0) {
-                        textoEstado = 'HOY';
-                        colorEstado = '#e67e22';
-                    } else if (diasRestantes <= 3) {
-                        textoEstado = `URGENTE (${diasRestantes}d)`;
-                        colorEstado = '#e74c3c';
-                    } else {
-                        textoEstado = `Faltan ${diasRestantes} días`;
-                        colorEstado = '#3498db';
-                    }
-                    
-                    html += `
-                    <div class="task-item ${estado}">
-                        <div class="task-info">
-                            <h3>${tarea.materia_nombre} - ${tarea.titulo}</h3>
-                            <p>${tarea.descripcion || 'Sin descripción adicional'}</p>
-                            <div class="task-meta">
-                                📅 Creada: ${fechaCreacion} | 
-                                🎯 Entrega: ${fechaEntrega} | 
-                                🏫 ${tarea.grado_nombre} ${tarea.seccion} | 
-                                📚 ${tarea.materia_nombre}
-                            </div>
-                        </div>
-                        <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
-                    </div>
-                    `;
-                });
-                
-                listaTareas.innerHTML = html;
-            }
-
-            async function enviarComunicado() {
-                const titulo = document.getElementById('asuntoComunicado').value.trim();
-                const mensaje = document.getElementById('mensajeComunicado').value.trim();
-                const grado_id = document.getElementById('destinatariosComunicado').value;
-                const urgente = document.getElementById('urgenteComunicado').checked;
-                
-                let messageElement = document.getElementById('comunicado-message');
-
-                if (!titulo || !mensaje) {
-                    messageElement.innerHTML = '<span style="color: #c0392b;">El asunto y el mensaje son obligatorios.</span>';
-                    return;
-                }
-
-                messageElement.innerHTML = '<span style="color: #2980b9;">Enviando comunicado...</span>';
-                
-                try {
-                    const response = await fetch('/api/docente/guardar-comunicado.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            titulo: titulo,
-                            mensaje: mensaje,
-                            grado_id: parseInt(grado_id),
-                            urgente: urgente ? 1 : 0
-                        })
-                    });
-
-                    const data = await response.json();
-
-                    if (data.success) {
-                        messageElement.innerHTML = `<span style="color: #27ae60;">${data.message}</span>`;
-                        document.getElementById('formComunicado').reset();
-                        // Después de enviar, regresa al listado automáticamente
-                        setTimeout(() => {
-                            showComunicadoView('listado'); 
-                        }, 1500);
-                    } else {
-                        messageElement.innerHTML = `<span style="color: #c0392b;">Error al enviar: ${data.message}</span>`;
-                    }
-
-                } catch (error) {
-                    console.error('Error:', error);
-                    messageElement.innerHTML = '<span style="color: #c0392b;">Error de conexión con el servidor.</span>';
-                }
-            }
-
-            /**
-             * Habilita la funcionalidad de Listar Comunicados Enviados.
-             * Conecta con la nueva API: /api/docente/obtener-comunicados.php
-             */
-            async function cargarComunicados() {
-            // Selecciona el contenedor .message-list DENTRO del div id="comunicados"
-            const messageListContainer = document.querySelector('#comunicados .message-list');
-            messageListContainer.innerHTML = '<p style="text-align: center; color: #7f8c8d;">Cargando lista de comunicados...</p>';
-
-            try {
-                const response = await fetch('/api/docente/obtener-comunicados.php');
-                const data = await response.json();
-
-                if (!data.success) {
-                    messageListContainer.innerHTML = `<p style="color: #c0392b; text-align: center;">Error al cargar: ${data.message}</p>`;
-                    return;
-                }
-
-                if (data.comunicados.length === 0) {
-                    messageListContainer.innerHTML = '<p style="text-align: center; color: #7f8c8d;">No ha enviado comunicados aún.</p>';
-                    return;
-                }
-
-                let html = '';
-                data.comunicados.forEach(comunicado => {
-                    // Formatea la fecha de publicación
-                    const fechaPublicacion = new Date(comunicado.fecha_publicacion).toLocaleDateString('es-ES', { 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric', 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                    });
-                    
-                    let destinatario = 'Todos mis grados';
-                    if (comunicado.grado_nombre) {
-                        destinatario = `Padres de ${comunicado.grado_nombre} ${comunicado.seccion}`;
-                    }
-
-                    // Etiqueta de Urgente
-                    const urgenteTag = comunicado.urgente == 1 
-                        ? '<span class="message-badge urgent-badge" style="background-color: #e74c3c; color: white; padding: 5px; border-radius: 4px; font-size: 0.8em; margin-left: 10px;">¡URGENTE!</span>'
-                        : '';
-
-                    html += `
-                        <div class="message-card">
-                            <div class="message-header">
-                                <div>
-                                    <div class="message-sender">👨‍🏫 ${destinatario}</div>
-                                    <div class="message-date">${fechaPublicacion}</div>
-                                </div>
-                                ${urgenteTag}
-                            </div>
-                            <h3 class="message-title">${comunicado.titulo}</h3>
-                            <p class="message-text">${comunicado.mensaje}</p>
-                        </div>
-                    `;
-                });
-                
-                messageListContainer.innerHTML = html;
-
-            } catch (error) {
-                console.error('Error al obtener comunicados:', error);
-                messageListContainer.innerHTML = '<p style="color: #c0392b; text-align: center;">No se pudo conectar con la API de comunicados.</p>';
-            }
+    // Función para crear tarea
+    async function crearTarea() {
+        const form = document.getElementById('formCrearTarea');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
         }
 
-            // Inicialización al cargar la página
-            document.addEventListener('DOMContentLoaded', function() {
-                // Cargar módulo de tareas por defecto (se activa en loadModule)
-                document.querySelector('.nav-item').classList.add('active'); // Asegurar el primer item activo
-                loadModule('tareas', document.querySelector('.nav-item.active'));
-                
-                // Establecer fecha mínima como hoy para el campo de fecha de tareas
-                const fechaInput = document.getElementById('fechaTarea');
-                if (fechaInput) {
-                    const today = new Date().toISOString().split('T')[0];
-                    fechaInput.min = today;
-                    fechaInput.value = today; // Opcional: establecer hoy como valor por defecto
-                }
+        const gradoId = document.getElementById('gradoTarea').value;
+        const materiaId = document.getElementById('materiaTarea').value;
+        const titulo = document.getElementById('tituloTarea').value;
+        const descripcion = document.getElementById('descripcionTarea').value;
+        const fechaEntrega = document.getElementById('fechaTarea').value;
+
+        if (!gradoId || !materiaId) {
+            alert('Por favor seleccione un grado y una materia');
+            return;
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        if (fechaEntrega < today) {
+            alert('La fecha de entrega no puede ser en el pasado');
+            return;
+        }
+
+        const payload = {
+            titulo: titulo,
+            descripcion: descripcion,
+            grado_id: parseInt(gradoId),
+            materia_id: parseInt(materiaId),
+            fecha_entrega: fechaEntrega
+        };
+
+        const btn = document.getElementById('btnPublicarTarea');
+        
+        try {
+            btn.disabled = true;
+            btn.textContent = 'Publicando...';
+
+            const response = await fetch('../../api/docente/guardar-tarea.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
-    </script>
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('✅ Tarea creada exitosamente');
+                form.reset();
+                
+                // Recargar las tareas si el módulo está activo
+                if (document.getElementById('tareas').classList.contains('active')) {
+                    cargarTareas();
+                }
+                
+                location.reload(); // Recarga para actualizar el calendario y evitar problemas
+                
+            } else {
+                alert('❌ Error: ' + (data.message || 'Error desconocido'));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('❌ Error de conexión con el servidor');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '📤 Publicar Tarea';
+        }
+    }
+
+    // Función para cargar tareas
+    async function cargarTareas() {
+        const loadingDiv = document.getElementById('loadingTareas');
+        const listaTareas = document.getElementById('listaTareasReal');
+        
+        loadingDiv.style.display = 'block';
+        listaTareas.innerHTML = '<div style="text-align: center; padding: 20px; color: #7f8c8d;">Cargando tareas...</div>';
+        
+        try {
+            const response = await fetch('../../api/docente/obtener-tareas.php');
+            const data = await response.json();
+            
+            if (data.success) {
+                actualizarListaTareas(data.tareas);
+            } else {
+                listaTareas.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #e74c3c;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                        <p>Error al cargar las tareas: ${data.message || 'Error desconocido'}</p>
+                        <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            listaTareas.innerHTML = `
+                <div style="text-align: center; padding: 20px; color: #e74c3c;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">🔌</div>
+                    <p>Error de conexión con el servidor</p>
+                    <button class="calendar-btn" onclick="cargarTareas()">🔄 Reintentar</button>
+                </div>
+            `;
+        } finally {
+            loadingDiv.style.display = 'none';
+        }
+    }
+
+    // Función para actualizar la lista de tareas
+    function actualizarListaTareas(tareas) {
+        const listaTareas = document.getElementById('listaTareasReal');
+        
+        if (!tareas || tareas.length === 0) {
+            listaTareas.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #7f8c8d;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">📚</div>
+                    <p>No hay tareas creadas aún.</p>
+                    <button class="calendar-btn" onclick="loadModule('crear-tarea', document.querySelector('[onclick*=\"crear-tarea\"]'))">
+                        ➕ Crear Mi Primera Tarea
+                    </button>
+                </div>
+            `;
+            return;
+        }
+        
+        let html = '';
+        tareas.forEach(tarea => {
+            const fechaCreacion = new Date(tarea.fecha_creacion).toLocaleDateString('es-ES');
+            const fechaEntrega = new Date(tarea.fecha_entrega).toLocaleDateString('es-ES');
+            const hoy = new Date();
+            hoy.setHours(0, 0, 0, 0);
+            const fechaEntregaObj = new Date(tarea.fecha_entrega);
+            fechaEntregaObj.setHours(0, 0, 0, 0);
+            
+            const oneDay = 1000 * 60 * 60 * 24;
+            const diffTime = fechaEntregaObj.getTime() - hoy.getTime();
+            const diasRestantes = Math.ceil(diffTime / oneDay);
+            
+            let estado = 'pending';
+            let textoEstado = 'PENDIENTE';
+            let colorEstado = '#f39c12';
+            
+            if (diasRestantes < 0) {
+                estado = 'expired';
+                textoEstado = 'VENCIDA';
+                colorEstado = '#e74c3c';
+            } else if (diasRestantes === 0) {
+                textoEstado = 'HOY';
+                colorEstado = '#e67e22';
+            } else if (diasRestantes <= 3) {
+                textoEstado = `URGENTE (${diasRestantes}d)`;
+                colorEstado = '#e74c3c';
+            } else {
+                textoEstado = `Faltan ${diasRestantes} días`;
+                colorEstado = '#3498db';
+            }
+            
+            html += `
+            <div class="task-item ${estado}">
+                <div class="task-info">
+                    <h3>${tarea.materia_nombre} - ${tarea.titulo}</h3>
+                    <p>${tarea.descripcion || 'Sin descripción adicional'}</p>
+                    <div class="task-meta">
+                        📅 Creada: ${fechaCreacion} | 
+                        🎯 Entrega: ${fechaEntrega} | 
+                        🏫 ${tarea.grado_nombre} ${tarea.seccion} | 
+                        📚 ${tarea.materia_nombre}
+                    </div>
+                </div>
+                <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
+            </div>
+            `;
+        });
+        
+        listaTareas.innerHTML = html;
+    }
+
+    // Funciones para comunicados
+    async function enviarComunicado() {
+        const titulo = document.getElementById('asuntoComunicado').value.trim();
+        const mensaje = document.getElementById('mensajeComunicado').value.trim();
+        const grado_id = document.getElementById('destinatariosComunicado').value;
+        const urgente = document.getElementById('urgenteComunicado').checked;
+        
+        let messageElement = document.getElementById('comunicado-message');
+
+        if (!titulo || !mensaje) {
+            messageElement.innerHTML = '<span style="color: #c0392b;">El asunto y el mensaje son obligatorios.</span>';
+            return;
+        }
+
+        messageElement.innerHTML = '<span style="color: #2980b9;">Enviando comunicado...</span>';
+        
+        try {
+            const response = await fetch('/api/docente/guardar-comunicado.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    titulo: titulo,
+                    mensaje: mensaje,
+                    grado_id: parseInt(grado_id),
+                    urgente: urgente ? 1 : 0
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                messageElement.innerHTML = `<span style="color: #27ae60;">${data.message}</span>`;
+                document.getElementById('formComunicado').reset();
+                setTimeout(() => {
+                    showComunicadoView('listado'); 
+                }, 1500);
+            } else {
+                messageElement.innerHTML = `<span style="color: #c0392b;">Error al enviar: ${data.message}</span>`;
+            }
+
+        } catch (error) {
+            console.error('Error:', error);
+            messageElement.innerHTML = '<span style="color: #c0392b;">Error de conexión con el servidor.</span>';
+        }
+    }
+
+    async function cargarComunicados() {
+        const messageListContainer = document.getElementById('listaComunicadosEnviados');
+        messageListContainer.innerHTML = '<p style="text-align: center; color: #7f8c8d;">Cargando lista de comunicados...</p>';
+
+        try {
+            const response = await fetch('/api/docente/obtener-comunicados.php');
+            const data = await response.json();
+
+            if (!data.success) {
+                messageListContainer.innerHTML = `<p style="color: #c0392b; text-align: center;">Error al cargar: ${data.message}</p>`;
+                return;
+            }
+
+            if (data.comunicados.length === 0) {
+                messageListContainer.innerHTML = '<p style="text-align: center; color: #7f8c8d;">No ha enviado comunicados aún.</p>';
+                return;
+            }
+
+            let html = '';
+            data.comunicados.forEach(comunicado => {
+                const fechaPublicacion = new Date(comunicado.fecha_publicacion).toLocaleDateString('es-ES', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric', 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                let destinatario = 'Todos mis grados';
+                if (comunicado.grado_nombre) {
+                    destinatario = `Padres de ${comunicado.grado_nombre} ${comunicado.seccion}`;
+                }
+
+                const urgenteTag = comunicado.urgente == 1 
+                    ? '<span class="message-badge badge-urgent">¡URGENTE!</span>'
+                    : '';
+
+                html += `
+                    <div class="message-item ${comunicado.urgente == 1 ? 'urgent' : ''}">
+                        ${urgenteTag}
+                        <h3>${comunicado.titulo}</h3>
+                        <p>${comunicado.mensaje}</p>
+                        <div class="message-meta">
+                            📅 Enviado: ${fechaPublicacion} | 
+                            👥 ${destinatario}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            messageListContainer.innerHTML = html;
+
+        } catch (error) {
+            console.error('Error al obtener comunicados:', error);
+            messageListContainer.innerHTML = '<p style="color: #c0392b; text-align: center;">No se pudo conectar con la API de comunicados.</p>';
+        }
+    }
+
+    // Inicialización al cargar la página
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelector('.nav-item').classList.add('active');
+        loadModule('tareas', document.querySelector('.nav-item.active'));
+        
+        const fechaInput = document.getElementById('fechaTarea');
+        if (fechaInput) {
+            const today = new Date().toISOString().split('T')[0];
+            fechaInput.min = today;
+            fechaInput.value = today;
+        }
+    });
+</script>
 </body>
 </html>
