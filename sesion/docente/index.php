@@ -757,6 +757,8 @@ $dia_actual = $fecha_actual->format('j');
         const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
         const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
         
+        console.log('Array de Fechas de Tareas (fechasTareas):', fechasTareas);
+
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const today = new Date();
@@ -797,6 +799,7 @@ $dia_actual = $fecha_actual->format('j');
             const tieneTareas = fechasTareas.includes(fechaStr);
 
             if (tieneTareas) {
+                console.log(`✅ TAREA ENCONTRADA EN: ${fechaStr}`);
                 clase += ' has-task'; 
             }
             
@@ -828,28 +831,43 @@ $dia_actual = $fecha_actual->format('j');
     }
 
     function seleccionarDia(dia, mes, ano) {
+        // Establecer la fecha del día clicado a medianoche (00:00:00)
         const fecha = new Date(ano, mes, dia);
         fecha.setHours(0, 0, 0, 0);
+        
         const opciones = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
         const fechaFormateada = fecha.toLocaleDateString('es-ES', opciones);
         
+        // Filtrar eventos y tareas para el día seleccionado
         const eventosDia = eventosCalendario.filter(evento => {
             const eventoDate = new Date(evento.fecha_evento);
-            eventoDate.setHours(0, 0, 0, 0);
+            // También establecer la fecha del evento a medianoche para una comparación precisa
+            eventoDate.setHours(0, 0, 0, 0); 
             return eventoDate.getTime() === fecha.getTime();
         });
         
-        let mensaje = `📅 ${fechaFormateada}`;
+        let mensaje = `📅 ${fechaFormateada}\n\n`;
         
         if (eventosDia.length > 0) {
-            mensaje += `\n\n📋 Programación para este día:\n`;
+            mensaje += `📋 Programación para este día:\n`;
+            
             eventosDia.forEach((evento, index) => {
-                const etiqueta = evento.tipo === 'evento_tarea' ? '📚 TAREA (Entrega)' : 
-                                 (evento.tipo === 'urgente' ? '🚨 EVENTO URGENTE' : '📢 EVENTO');
-                mensaje += `\n${index + 1}. ${etiqueta}: ${evento.titulo}\n   📝 ${evento.descripcion}\n`;
+                let tipoLabel = '';
+                let descripcionDetallada = evento.descripcion;
+
+                if (evento.tipo === 'evento_tarea') {
+                    tipoLabel = '📚 TAREA (Entrega)';
+                    // La descripción de la tarea ya tiene el Grado/Materia en el PHP, es solo mostrarla
+                } else if (evento.tipo === 'urgente') {
+                    tipoLabel = '🚨 EVENTO URGENTE';
+                } else {
+                    tipoLabel = '📢 EVENTO';
+                }
+                
+                mensaje += `\n- ${tipoLabel}: ${evento.titulo}\n  📝 Detalle: ${descripcionDetallada}\n`;
             });
         } else {
-            mensaje += `\n\nNo hay eventos ni tareas programados para este día.`;
+            mensaje += `No hay eventos ni tareas programados para este día.`;
         }
         
         alert(mensaje);
