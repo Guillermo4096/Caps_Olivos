@@ -319,6 +319,10 @@ try {
     </div>
 
     <script>
+        // --- Nueva Línea para acceder al username en JS ---
+        const LOGGED_IN_USERNAME = "<?php echo $_SESSION['username']; ?>";
+
+
         // Función para cargar módulos
         function loadModule(moduleId, clickedElement) {
             // Ocultar todos los módulos
@@ -385,6 +389,8 @@ try {
         
         function actualizarTablaUsuarios(usuarios) {
         const tbody = document.getElementById('tablaUsuarios');
+        // Define el usuario a proteger
+        const USUARIO_PROTEGIDO = 'guillermo.novoag';
         
         if (usuarios.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; text-align: center; color: #7f8c8d;">No hay usuarios registrados</td></tr>';

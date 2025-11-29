@@ -12,34 +12,78 @@ try {
     $db = new Database();
     $conn = $db->getConnection();
     
-    // 1. Obtener datos completos del padre
+    // 1. Obtener datos completos del padre Y los grados asignados
+    // *** CORRECCIÓN: DNI y TELÉFONO se obtienen de la tabla 'usuarios' (u) ***
     $stmt = $conn->prepare("
-        SELECT p.dni, p.telefono, p.direccion, u.email, u.fecha_registro
+        SELECT 
+            u.dni, 
+            u.telefono, 
+            u.email, 
+            GROUP_CONCAT(g.nombre || ' ' || g.seccion || ' (' || g.nivel || ')', ', ') AS grados_asignados,
+            GROUP_CONCAT(g.id) AS grados_ids
         FROM padres p 
         INNER JOIN usuarios u ON p.usuario_id = u.id 
+        LEFT JOIN padre_grado pg ON u.id = pg.usuario_padre_id
+        LEFT JOIN grados g ON pg.grado_id = g.id
         WHERE u.id = ?
+        GROUP BY u.dni, u.telefono, u.email -- CORRECCIÓN: Los campos agrupados también deben ser de 'u'
     ");
+    
     $stmt->execute([$_SESSION['user_id']]);
     $padre_data = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($padre_data) {
+        $grados_padre = !empty($padre_data['grados_ids']) ? array_map('intval', explode(',', $padre_data['grados_ids'])) : [];
+        unset($padre_data['grados_ids']);
+        
+        // VERIFICACIÓN INDIVIDUAL DE CAMPOS - MÁS SEGURO
+        if (empty($padre_data['dni'])) $padre_data['dni'] = 'No disponible';
+        if (empty($padre_data['telefono'])) $padre_data['telefono'] = 'No disponible';
+        if (empty($padre_data['email'])) $padre_data['email'] = $_SESSION['email'] ?? 'No disponible';
+        if (empty($padre_data['grados_asignados'])) $padre_data['grados_asignados'] = 'No hay grados asignados';
+        
+    } else {
+        // Consulta alternativa para obtener solo datos básicos del padre
+        // *** CORRECCIÓN: DNI y TELÉFONO se obtienen de la tabla 'usuarios' (u) ***
+        $stmt_basic = $conn->prepare("
+            SELECT u.dni, u.telefono, u.email
+            FROM padres p 
+            INNER JOIN usuarios u ON p.usuario_id = u.id 
+            WHERE u.id = ?
+        ");
+        $stmt_basic->execute([$_SESSION['user_id']]);
+        $padre_basic = $stmt_basic->fetch(PDO::FETCH_ASSOC);
+        
+        if ($padre_basic) {
+            $padre_data = [
+                'dni' => $padre_basic['dni'] ?? 'No disponible',
+                'telefono' => $padre_basic['telefono'] ?? 'No disponible',
+                'email' => $padre_basic['email'] ?? $_SESSION['email'] ?? 'No disponible',
+                'grados_asignados' => 'No hay grados asignados'
+            ];
+        } else {
+            $padre_data = [
+                'dni' => 'No disponible',
+                'telefono' => 'No disponible', 
+                'email' => $_SESSION['email'] ?? 'No disponible',
+                'grados_asignados' => 'No hay grados asignados'
+            ];
+        }
+        $grados_padre = [];
+    }
 
-    // 2. Obtener IDs de los Grados asignados al padre (LOGICA CORREGIDA)
-    $stmt = $conn->prepare("
-        SELECT g.id as grado_id
-        FROM padre_grado pg
-        INNER JOIN grados g ON pg.grado_id = g.id
-        WHERE pg.usuario_padre_id = ?
-    ");
-    $stmt->execute([$_SESSION['user_id']]);
-    $grados_padre = $stmt->fetchAll(PDO::FETCH_COLUMN); // Solo necesitamos los IDs
-
+    // Inicializar variables para el dashboard
     $tareas_pendientes = 0;
+    $tareas_completadas = 0;
+    $dias_proximo_evento = 0;
+    $comunicados_nuevos = 0;
     $tareas_recientes = [];
-    $tareas_totales = 0;
+    $eventos = [];
 
     if (!empty($grados_padre)) {
         $placeholders = str_repeat('?,', count($grados_padre) - 1) . '?';
 
-        // 3. Obtener TAREAS RECIENTES, TOTALES Y PENDIENTES (LOGICA CORREGIDA)
+        // Obtener TAREAS RECIENTES, TOTALES Y PENDIENTES
         
         // A. Tareas Pendientes (COUNT): No vencidas
         $stmt_count = $conn->prepare("
@@ -59,8 +103,10 @@ try {
         $stmt_total->execute($grados_padre);
         $tareas_totales = $stmt_total->fetchColumn();
 
+        // C. Tareas Completadas (calculado)
+        $tareas_completadas = $tareas_totales - $tareas_pendientes;
 
-        // C. Tareas Recientes (para mostrar en el dashboard)
+        // D. Tareas Recientes (para mostrar en el dashboard)
         $stmt_recientes = $conn->prepare("
             SELECT t.titulo, t.descripcion, t.fecha_entrega, 
                 m.nombre AS materia_nombre, 
@@ -80,15 +126,20 @@ try {
             ORDER BY t.fecha_entrega ASC
             LIMIT 5
         ");
+        $stmt_recientes->execute($grados_padre);
+        $tareas_recientes = $stmt_recientes->fetchAll(PDO::FETCH_ASSOC);
     }
     
 } catch (Exception $e) {
-    // En caso de error, usar datos por defecto
+    // Si hay un error, se sigue mostrando el mensaje de error de la DB para diagnóstico
+    error_log("Error de Base de Datos en index.php (Padre): " . $e->getMessage());
+    $error_msg = "Error DB: " . htmlspecialchars($e->getMessage());
+
     $padre_data = [
-        'dni' => 'No disponible',
-        'telefono' => 'No disponible', 
-        'direccion' => 'No disponible',
-        'email' => $_SESSION['email'] ?? 'No disponible'
+        'dni' => $error_msg,
+        'telefono' => $error_msg, 
+        'grados_asignados' => $error_msg,
+        'email' => $_SESSION['email'] ?? 'No disponible',
     ];
     $tareas_pendientes = 0;
     $tareas_completadas = 0;
@@ -271,7 +322,6 @@ $dia_actual = $fecha_actual->format('j');
     </style>
 </head>
 <body>
-    <!-- Aplicación principal -->
     <div class="main-app active" id="mainApp">
         <div class="sidebar">
             <div class="sidebar-header">
@@ -317,7 +367,6 @@ $dia_actual = $fecha_actual->format('j');
         <div class="main-content">
             
             <div class="content-area">
-                <!-- DASHBOARD -->
                 <div id="dashboard" class="module-content active">
                     <div class="stats-grid">
                         <div class="stat-card warning">
@@ -370,7 +419,6 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                 
-                <!-- TAREAS -->
                 <div id="tareas" class="module-content">
                     <div style="margin-bottom: 25px;">
                         <h3 style="color: #2c3e50; margin-bottom: 15px;">📋 Tareas de los Grados Asignados</h3>
@@ -382,7 +430,6 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                                 
-                <!-- CALENDARIO MEJORADO -->
                 <div id="calendario" class="module-content">
                     <div class="calendar-wrapper">
                         <div class="calendar-box">
@@ -395,8 +442,7 @@ $dia_actual = $fecha_actual->format('j');
                             </div>
                             
                             <div class="calendar-grid" id="calendarioGrid">
-                                <!-- Generado por JavaScript -->
-                            </div>
+                                </div>
                         </div>
                         
                         <div class="calendar-box">
@@ -424,14 +470,12 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                 
-                <!-- COMUNICADOS -->
                 <div id="comunicados" class="module-content">
                     <div class="message-list" id="listaComunicados">
                         <div class="loading-message">Cargando comunicados...</div>
                     </div>
                 </div>
                 
-                <!-- PERFIL -->
                 <div id="perfil" class="module-content">
                     <div class="profile-container">
                         <div class="profile-card">
@@ -461,8 +505,8 @@ $dia_actual = $fecha_actual->format('j');
                                 </div>
                                 
                                 <div class="info-item">
-                                    <div class="info-label">Dirección</div>
-                                    <div class="info-value" id="direccionPadre"><?php echo htmlspecialchars($padre_data['direccion']); ?></div>
+                                    <div class="info-label">Grados Asignados</div>
+                                    <div class="info-value" id="gradosAsignados"><?php echo htmlspecialchars($padre_data['grados_asignados']); ?></div>
                                 </div>
                             </div>
                         </div>                        
@@ -580,7 +624,7 @@ $dia_actual = $fecha_actual->format('j');
                 const tieneEventos = eventosCalendario.some(evento => {
                     const eventoDate = new Date(evento.fecha_evento);
                     return eventoDate.getDate() === day && 
-                           eventoDate.getMonth() === month && 
+                           eventoDate.getMonth() === mes && 
                            eventoDate.getFullYear() === year;
                 });
                 
@@ -687,50 +731,6 @@ $dia_actual = $fecha_actual->format('j');
                         break;
                     case 'pendiente':
                         colorEstado = '#3498db';
-                        break;
-                }
-
-                html += `
-                    <div class="task-item">
-                        <div class="task-info">
-                            <h3>📚 ${tarea.materia_nombre} - ${tarea.titulo}</h3>
-                            <p>${tarea.descripcion}</p>
-                            <div class="task-meta">
-                                📅 Vence: ${new Date(tarea.fecha_entrega).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })} | 
-                                👨‍🏫 Prof. ${tarea.docente_nombres} ${tarea.docente_apellidos} | 
-                                🎓 Grado: ${tarea.grado_nombre} ${tarea.seccion}
-                            </div>
-                        </div>
-                        <span class="task-status" style="background: ${colorEstado}">${textoEstado}</span>
-                    </div>
-                `;
-            });
-            
-            listaTareas.innerHTML = html;
-        }
-
-        function renderTareasRecientes(tareas) {
-            const listaTareas = document.getElementById('lista-tareas-recientes'); // Asegúrate de tener este ID
-            let html = '';
-
-            if (tareas.length === 0) {
-                listaTareas.innerHTML = '<p class="text-center">No hay tareas recientes asignadas.</p>';
-                return;
-            }
-
-            tareas.forEach(tarea => {
-                let colorEstado = '';
-                let textoEstado = tarea.estado_texto.charAt(0).toUpperCase() + tarea.estado_texto.slice(1);
-                
-                switch (tarea.estado_texto) {
-                    case 'vencida':
-                        colorEstado = '#e74c3c'; // Rojo
-                        break;
-                    case 'hoy':
-                        colorEstado = '#f39c12'; // Naranja
-                        break;
-                    case 'pendiente':
-                        colorEstado = '#3498db'; // Azul
                         break;
                 }
 

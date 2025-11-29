@@ -479,11 +479,6 @@ $dia_actual = $fecha_actual->format('j');
                     </div>
                 </div>
                 
-                <div class="nav-item" onclick="loadModule('comunicados', this)">
-                    <i class="fas fa-bullhorn"></i>
-                    <span>Comunicados</span>
-                </div>
-
                 <div id="module-comunicados" class="main-module" style="display: none;">
                     <h2><i class="fas fa-bullhorn"></i> Gestión de Comunicados</h2>
 
@@ -589,16 +584,6 @@ $dia_actual = $fecha_actual->format('j');
                                     <div class="info-label">Total Estudiantes</div>
                                     <div class="info-value" id="totalEstudiantes"><?php echo $total_estudiantes; ?> estudiantes</div>
                                 </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Turno</div>
-                                    <div class="info-value" id="turnoDocente">Mañana</div>
-                                </div>
-                                
-                                <div class="info-item">
-                                    <div class="info-label">Años de Servicio</div>
-                                    <div class="info-value" id="experienciaDocente">8 años</div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -672,7 +657,7 @@ $dia_actual = $fecha_actual->format('j');
 
                 document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
                 element.classList.add('active');
-
+                
                 if (element) {
                     element.classList.add('active');
                 }
