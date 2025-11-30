@@ -55,7 +55,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Administración - I.E José Faustino Sánchez Carrión</title>
+    <title>Panel de Administración - I.E Juan Pablo Vizcardo y Guzmán</title>
     <link rel="stylesheet" href="../../css/styles.css">
 </head>
 <body>
