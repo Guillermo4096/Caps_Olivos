@@ -1,0 +1,8 @@
+*.db
+*.log
+*.tmp
+*.sh
+tests/*.env
+tests/secrets.json
+tests/reports/
+tests/test_db.sqlite
